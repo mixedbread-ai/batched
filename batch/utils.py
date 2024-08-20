@@ -1,11 +1,13 @@
+from __future__ import annotations
+
+import asyncio
 import inspect
+from collections.abc import Callable, Iterable
+from functools import wraps, partial
 from types import FunctionType, MethodType
-from typing import Any, Callable, Iterable, TypeVar, Union
+from typing import TypeVar, Any
 
 import numpy as np
-import torch
-
-from batch.types import NDArrayOrTensor
 
 T = TypeVar("T")
 
@@ -61,62 +63,8 @@ def torch_or_np(item: Any):
     raise ValueError(msg)
 
 
-def pad_to_max_length(
-    inputs: Union[dict[str, NDArrayOrTensor], NDArrayOrTensor],
-    max_length: int,
-    pad_token_id: int,
-) -> Union[dict[str, NDArrayOrTensor], NDArrayOrTensor]:
-    """Pad the inputs to the maximum length with the pad token id.
-
-    Args:
-        inputs (Union[Dict[str, NDArrayOrTensor], NDArrayOrTensor]): The inputs to pad.
-        max_length (int): The maximum length to pad to.
-        pad_token_id (int): The pad token id to use.
-
-    Returns:
-        Union[Dict[str, NDArrayOrTensor], NDArrayOrTensor]: Padded inputs.
-
-    Raises:
-        TypeError: If inputs are neither a dictionary nor a tensor/array.
-
-    """
-    if isinstance(inputs, dict):
-        return _pad_dict_inputs(inputs, max_length, pad_token_id)
-    if isinstance(inputs, (torch.Tensor, np.ndarray)):
-        return _pad_tensor_or_array(inputs, max_length, pad_token_id)
-
-    msg = "Inputs must be either a dictionary or a tensor/array."
-    raise TypeError(msg)
-
-
-def _pad_dict_inputs(
-    inputs: dict[str, NDArrayOrTensor], max_length: int, pad_token_id: int
-) -> dict[str, NDArrayOrTensor]:
-    """Helper function to pad dictionary inputs."""
-    is_tensor = isinstance(first(inputs.values()), torch.Tensor)
-    for key, value in inputs.items():
-        if value.shape[-1] < max_length:
-            if is_tensor:
-                pre_allocated = torch.full(
-                    (value.shape[0], max_length), pad_token_id, dtype=value.dtype, device=value.device
-                )
-                inputs[key] = torch.cat((value, pre_allocated[:, value.shape[-1] :]), dim=-1)
-            else:
-                pre_allocated = np.full((value.shape[0], max_length - value.shape[-1]), pad_token_id, dtype=value.dtype)
-                inputs[key] = np.concatenate((value, pre_allocated), axis=-1)
-    return inputs
-
-
-def _pad_tensor_or_array(inputs: NDArrayOrTensor, max_length: int, pad_token_id: int) -> NDArrayOrTensor:
-    """Helper function to pad tensor or array inputs."""
-    if isinstance(inputs, torch.Tensor):
-        pre_allocated = torch.full(
-            (inputs.shape[0], max_length), pad_token_id, dtype=inputs.dtype, device=inputs.device
-        )
-        return torch.cat((inputs, pre_allocated[:, inputs.shape[-1] :]), dim=-1)
-
-    pre_allocated = np.full((inputs.shape[0], max_length), pad_token_id, dtype=inputs.dtype)
-    return np.concatenate((inputs, pre_allocated[:, inputs.shape[-1] :]), axis=-1)
+def ensure_async(func: Callable) -> Callable:
+    return func if asyncio.iscoroutinefunction(func) else partial(asyncio.to_thread, func)
 
 
 def is_method(func: Callable) -> bool:
@@ -132,3 +80,26 @@ def is_method(func: Callable) -> bool:
     if not isinstance(func, (FunctionType, MethodType)):
         return False
     return next(iter(inspect.signature(func).parameters)) in ("self", "cls")
+
+
+def ensure_dict_input(func: Callable) -> Callable:
+    sig = inspect.signature(func)
+    params = sig.parameters
+
+    expect_dict = (
+        len(params) == 1 and
+        next(iter(params.values())).annotation == dict
+    )
+
+    @wraps(func)
+    def wrapper(arg: dict):
+        return func(arg) if expect_dict else func(**arg)
+
+    return wrapper
+
+
+
+
+
+
+    

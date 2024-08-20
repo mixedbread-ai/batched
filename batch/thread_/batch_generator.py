@@ -4,28 +4,28 @@ import time
 from dataclasses import dataclass, field
 from queue import Queue
 from threading import Event
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic
+
+from batch.types import T, U
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from batch.types import ModelFeatures, NDArrayOrTensor
-
 
 @dataclass(order=True)
-class InferenceItem:
-    size: int
-    content: ModelFeatures = field(compare=False)
-    event: Event = field(default_factory=Event, compare=False)
+class Item(Generic[T, U]):
+    content: T = field(compare=False)
     prioritized: bool = field(default=False, compare=False)
-    result: NDArrayOrTensor | list[NDArrayOrTensor] = field(default=None, compare=False)
+
+    result: U = field(default=None, compare=False)
+    event: Event = field(default_factory=Event, compare=False)
     exception: Exception = field(default=None, compare=False)
 
-    def complete(self, result: NDArrayOrTensor | list[NDArrayOrTensor]) -> None:
+    def complete(self, result: U) -> None:
         self.result = result
         self.event.set()
 
-    def get_result(self) -> NDArrayOrTensor | list[NDArrayOrTensor]:
+    def get_result(self) -> U:
         self.event.wait()
         if self.exception:
             raise self.exception
@@ -36,7 +36,7 @@ class InferenceItem:
         self.event.set()
 
 
-class BatchGenerator:
+class BatchGenerator(Generic[T, U]):
     def __init__(
         self,
         batch_size: int = 32,
@@ -49,11 +49,11 @@ class BatchGenerator:
     def __len__(self) -> int:
         return self._queue.qsize()
 
-    def extend(self, items: list[InferenceItem]) -> None:
+    def extend(self, items: list[Item[T, U]]) -> None:
         for item in items:
             self._queue.put(item)
 
-    def optimal_batches(self) -> Generator[list[InferenceItem], None, None]:
+    def optimal_batches(self) -> Generator[list[Item[T, U]], None, None]:
         while True:
             queue_size = self._queue.qsize()
             if queue_size == 0:
@@ -71,6 +71,7 @@ class BatchGenerator:
                     new_items_l.append(self._queue.get())
 
             for i in range(n_batches):
-                mini_batch = new_items_l[self._batch_size * i : self._batch_size * (i + 1)]
+                mini_batch = new_items_l[self._batch_size * i: self._batch_size * (i + 1)]
                 if mini_batch:
                     yield mini_batch
+

@@ -68,7 +68,7 @@ class BatchProcessor:
         self._lock = threading.Lock()
         self._stats = BatchProcessorStats()
 
-    def prioritize(self, items: list[ModelFeatures]) -> list[bool]:
+    def prioritize(self, items: list[ModelFeatures]) -> list[int]:
         """
         Determine if items should be prioritized based on the batch size.
 
@@ -76,10 +76,10 @@ class BatchProcessor:
             items (list[ModelFeatures]): The list of items to prioritize.
 
         Returns:
-            list[bool]: A list of boolean values indicating whether each item should be prioritized.
+            list[int]: A list of int values indicating the priority of each item.
         """
-        prioritized = len(items) <= self.small_batch_threshold
-        return [prioritized] * len(items)
+        priority = 0 if len(items) <= self.small_batch_threshold else 1
+        return [priority] * len(items)
 
     def start(self):
         """
@@ -100,6 +100,7 @@ class BatchProcessor:
             if not self._running:
                 return
             self._running = False
+            self.batch_queue.stop()
 
         if self._thread:
             self._thread.join()
@@ -144,7 +145,7 @@ class BatchProcessor:
         prioritized = self.prioritize(items)
 
         new_priority_queue = [
-            Item[ModelFeatures, ModelOutputs](content=item, prioritized=prio) for item, prio in zip(items, prioritized)
+            Item[ModelFeatures, ModelOutputs](content=item, priority=prio) for item, prio in zip(items, prioritized)
         ]
 
         self.batch_queue.extend(new_priority_queue)

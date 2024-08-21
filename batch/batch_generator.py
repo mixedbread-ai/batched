@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 @dataclass(order=True)
 class Item(Generic[T, U]):
     content: T = field(compare=False)
-    prioritized: bool = field(default=False, compare=True)
+    priority: int = field(default=1, compare=True)
 
     result: U = field(default=None, compare=False)
     event: Event = field(default_factory=Event, compare=False)
@@ -47,6 +47,7 @@ class BatchGenerator(Generic[T, U]):
         _queue (PriorityQueue): A priority queue to store items.
         _batch_size (int): The maximum size of each batch.
         _timeout (float): The timeout in seconds between batch generation attempts.
+        _stop_requested (bool): Flag to indicate if the generator should stop.
 
     Type Parameters:
         T: The type of the content in the Item.
@@ -68,6 +69,7 @@ class BatchGenerator(Generic[T, U]):
         self._queue = PriorityQueue()
         self._batch_size = batch_size
         self._timeout = timeout_ms / 1000
+        self._stop_requested = False
 
     def __len__(self) -> int:
         """
@@ -98,15 +100,17 @@ class BatchGenerator(Generic[T, U]):
         Yields:
             list[Item[T, U]]: A batch of items from the queue.
         """
-        while True:
+        while not self._stop_requested:
             queue_size = self._queue.qsize()
 
             if queue_size == 0:
                 time.sleep(self._timeout)
                 continue
 
-            elif queue_size < self._batch_size:
+            if queue_size < self._batch_size:
                 time.sleep(self._timeout)
+
+            queue_size = self._queue.qsize()
 
             n_batches = max(1, queue_size // self._batch_size)
             size_batches = self._batch_size * n_batches
@@ -117,3 +121,12 @@ class BatchGenerator(Generic[T, U]):
                 mini_batch = new_items_l[self._batch_size * i : self._batch_size * (i + 1)]
                 if mini_batch:
                     yield mini_batch
+
+    def stop(self):
+        """
+        Request the generator to stop.
+
+        This method sets the _stop_requested flag to True, which will cause the
+        optimal_batches generator to exit its loop on the next iteration.
+        """
+        self._stop_requested = True

@@ -54,7 +54,7 @@ class BatchProcessor(Generic[T, U]):
         self._lock = threading.Lock()
         self._stats = BatchProcessorStats()
 
-    def prioritize(self, items: list[T]) -> list[bool]:
+    def prioritize(self, items: list[T]) -> list[int]:
         """
         Determine if items should be prioritized based on the batch size.
 
@@ -62,10 +62,10 @@ class BatchProcessor(Generic[T, U]):
             items (list[T]): The list of items to prioritize.
 
         Returns:
-            list[bool]: A list of boolean values indicating whether each item should be prioritized.
+            list[int]: A list of integer values indicating the priority of each item.
         """
-        prioritized = len(items) <= self.small_batch_threshold
-        return [prioritized] * len(items)
+        priority = 0 if len(items) <= self.small_batch_threshold else 1
+        return [priority] * len(items)
 
     def start(self):
         """
@@ -80,12 +80,13 @@ class BatchProcessor(Generic[T, U]):
 
     def shutdown(self):
         """
-        Shutdown the batch processing thread and wait for it to finish.
+        Shutdown the batch processing thread, stop the batch queue, and wait for the thread to finish.
         """
         with self._lock:
             if not self._running:
                 return
             self._running = False
+            self.batch_queue.stop()
 
         if self._thread:
             self._thread.join()
@@ -97,6 +98,18 @@ class BatchProcessor(Generic[T, U]):
     def __call__(self, items: list[T]) -> list[U]: ...
 
     def __call__(self, items: T | list[T]) -> U | list[U]:
+        """
+        Process a single item or a list of items.
+
+        This method starts the batch processor if it's not already running,
+        then schedules the item(s) for processing.
+
+        Args:
+            items (T | list[T]): A single item or a list of items to process.
+
+        Returns:
+            U | list[U]: The processed result for a single item, or a list of results for multiple items.
+        """
         if not self._running:
             self.start()
 
@@ -120,7 +133,7 @@ class BatchProcessor(Generic[T, U]):
         new_priority_queue = [
             Item[T, U](
                 content=item,
-                prioritized=prio,
+                priority=prio,
             )
             for item, prio in zip(items, prioritized)
         ]

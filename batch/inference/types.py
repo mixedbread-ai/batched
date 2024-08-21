@@ -31,20 +31,19 @@ def torch_or_np(item):
         ModuleType: Either torch or numpy module.
 
     Raises:
-        ImportError: If torch is not installed, but a tensor/array is passed.
-        TypeError: If the input type is not supported.
-
+        ImportError: If torch is not installed, but a tensor is passed.
+        ValueError: If the input type is not supported.
     """
     if isinstance(item, dict | list | tuple):
         return torch_or_np(first(item.values()) if isinstance(item, dict) else item[0])
-    if isinstance(item, np.ndarray):
+    if isinstance(item, (np.ndarray, np.generic)):
         return np
 
     if not torch:
         msg = "Torch is not installed. Please install it with `pip install torch` to use this function."
         raise ImportError(msg)
 
-    if isinstance(item, torch.Tensor):
+    if torch.is_tensor(item) or isinstance(item, (torch.dtype, torch.Number)):
         return torch
 
     msg = f"Unsupported input type: {type(item)}"

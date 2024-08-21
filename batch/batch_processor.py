@@ -1,7 +1,7 @@
 import threading
 import time
 from collections.abc import Callable
-from typing import Generic
+from typing import Generic, overload
 
 from batch.batch_generator import BatchGenerator, Item
 from batch.decorator import _dynamic_batch
@@ -90,20 +90,20 @@ class BatchProcessor(Generic[T, U]):
         if self._thread:
             self._thread.join()
 
-    def __call__(self, items: list[T]) -> list[U]:
-        """
-        Process a list of items by scheduling them and returning the results.
+    @overload
+    def __call__(self, item: T) -> U: ...
 
-        Args:
-            items (list[T]): The list of items to process.
+    @overload
+    def __call__(self, items: list[T]) -> list[U]: ...
 
-        Returns:
-            list[U]: The list of processed results.
-        """
+    def __call__(self, items: T | list[T]) -> U | list[U]:
         if not self._running:
             self.start()
 
-        return self._schedule(items)
+        if isinstance(items, list):
+            return self._schedule(items)
+
+        return self._schedule([items])[0]
 
     def _schedule(self, items: list[T]) -> list[U]:
         """

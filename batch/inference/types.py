@@ -1,20 +1,54 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TypeVar
 
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
-    from torch import Tensor
+import numpy as np
 
-from batch.utils import first, torch_or_np
+from batch.utils import first
 
-NDArrayOrTensor = NDArray | Tensor
+try:
+    import torch
+except ImportError:
+    torch = None
+
+
+NDArrayOrTensor = TypeVar("NDArrayOrTensor", "np.ndarray", "torch.Tensor")
 
 ModelFeatures = dict[str, NDArrayOrTensor | list[NDArrayOrTensor]]
 ModelOutputs = NDArrayOrTensor | list[NDArrayOrTensor]
 
 BatchInfer = Callable[[ModelFeatures], ModelOutputs]
+
+
+def torch_or_np(item):
+    """Determine whether to use torch or numpy based on the input type.
+
+    Args:
+        item (Any): The input item to check.
+
+    Returns:
+        ModuleType: Either torch or numpy module.
+
+    Raises:
+        ImportError: If torch is not installed, but a tensor/array is passed.
+        TypeError: If the input type is not supported.
+
+    """
+    if isinstance(item, dict | list | tuple):
+        return torch_or_np(first(item.values()) if isinstance(item, dict) else item[0])
+    if isinstance(item, np.ndarray):
+        return np
+
+    if not torch:
+        msg = "Torch is not installed. Please install it with `pip install torch` to use this function."
+        raise ImportError(msg)
+
+    if isinstance(item, torch.Tensor):
+        return torch
+
+    msg = f"Unsupported input type: {type(item)}"
+    raise ValueError(msg)
 
 
 def stack_features(inputs: list[ModelFeatures], pad_tokens: dict[str, int]) -> ModelFeatures:

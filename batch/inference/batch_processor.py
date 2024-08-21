@@ -2,13 +2,23 @@ from __future__ import annotations
 
 import threading
 import time
-from functools import partial
-from typing import overload
+from typing import TYPE_CHECKING, overload
 
+from batch.batch_generator import BatchGenerator, Item
 from batch.decorator import _dynamic_batch
-from batch.inference.types import ModelFeatures, ModelOutputs, BatchInfer, stack_features, unstack_features, stack_outputs, unstack_outputs
-from batch.thread_.batch_generator import Item, BatchGenerator
+from batch.inference.types import (
+    BatchInfer,
+    ModelFeatures,
+    ModelOutputs,
+    stack_features,
+    stack_outputs,
+    unstack_features,
+    unstack_outputs,
+)
 from batch.types import BatchProcessorStats
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class BatchProcessor:
@@ -16,21 +26,21 @@ class BatchProcessor:
         self,
         _func: BatchInfer,
         batch_size: int = 32,
-        timeout: float = 5.0,
+        timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
         pad_tokens: dict[str, int] | None = None,
-
     ):
         self.batch_func = _func
 
-        self.batch_queue = BatchGenerator(batch_size, timeout)
+        self.batch_queue = BatchGenerator[ModelFeatures, ModelOutputs](
+            batch_size=batch_size, timeout_ms=timeout_ms
+        )
         self.small_batch_threshold = small_batch_threshold
         self.pad_tokens = pad_tokens or {}
 
         self._running = False
         self._thread = None
-        self._start_lock = threading.Lock()
-        self._start_event = threading.Event()
+        self._lock = threading.Lock()
         self._stats = BatchProcessorStats()
 
     def prioritize(self, items: list[ModelFeatures]) -> list[bool]:
@@ -38,7 +48,7 @@ class BatchProcessor:
         return [prioritized] * len(items)
 
     def start(self):
-        with self._start_lock:
+        with self._lock:
             if self._running:
                 return
             self._thread = threading.Thread(target=self._process_batches, daemon=True)
@@ -46,18 +56,19 @@ class BatchProcessor:
             self._running = True
 
     def shutdown(self):
-        if self._running:
+        with self._lock:
+            if not self._running:
+                return
             self._running = False
-            if self._thread:
-                self._thread.join()
+
+        if self._thread:
+            self._thread.join()
 
     @overload
-    def __call__(self, features: ModelFeatures, /) -> ModelOutputs:
-        ...
+    def __call__(self, features: ModelFeatures, /) -> ModelOutputs: ...
 
     @overload
-    def __call__(self, **features: ModelFeatures) -> ModelOutputs:
-        ...
+    def __call__(self, **features: ModelFeatures) -> ModelOutputs: ...
 
     def __call__(self, *args, **kwargs) -> ModelOutputs:
         if not self._running:
@@ -72,9 +83,10 @@ class BatchProcessor:
         prioritized = self.prioritize(items)
 
         new_priority_queue = [
-            Item(content=item, prioritized=prio)
-            for item, prio in zip(items, prioritized)
-        ]
+            Item[ModelFeatures, ModelOutputs](
+                content=item,
+                prioritized=prio
+            ) for item, prio in zip(items, prioritized)]
 
         self.batch_queue.extend(new_priority_queue)
         results = [item.get_result() for item in new_priority_queue]
@@ -106,29 +118,28 @@ class BatchProcessor:
 
             finally:
                 processing_time = time.time() - start_time
-                self._update_stats(len(batch), processing_time)
+                self._stats.update(len(batch), processing_time)
 
-    def _update_stats(self, batch_size: int, processing_time: float):
-        self._stats.total_processed += batch_size
-        self._stats.total_batches += 1
-        self._stats.avg_batch_size = self._stats.total_processed / self._stats.total_batches
-        self._stats.avg_processing_time = (
-            self._stats.avg_processing_time * (self._stats.total_batches - 1) + processing_time
-        ) / self._stats.total_batches
-
+    @property
     def stats(self):
-        self._stats.queue_size = len(self.batch_queue)
-        return self._stats
-
-def _make_processor(func: BatchInfer, **kwargs) -> BatchProcessor:
-    batch_size = kwargs.pop('batch_size', 32)
-    timeout = kwargs.pop('timeout', 5.0)
-    small_batch_threshold = kwargs.pop('small_batch_threshold', 8)
-    pad_tokens = kwargs.pop('pad_tokens', None)
-
-    return BatchProcessor(func, batch_size, timeout, small_batch_threshold, pad_tokens)
+        return self._stats.clone(queue_size=len(self.batch_queue))
 
 
-dynamically = partial(_dynamic_batch, _make_processor)
+def dynamically(
+        func: BatchInfer | None = None,
+        /,
+        batch_size: int = 32,
+        timeout_ms: float = 5.0,
+        small_batch_threshold: int = 8,
+        pad_tokens: dict[str, int] | None = None,
+) -> Callable:
+    def make_processor(_func: BatchInfer) -> BatchProcessor:
+        return BatchProcessor(
+            _func,
+            batch_size,
+            timeout_ms,
+            small_batch_threshold,
+            pad_tokens
+        )
 
-
+    return _dynamic_batch(make_processor, func)

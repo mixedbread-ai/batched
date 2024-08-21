@@ -1,16 +1,20 @@
-from collections.abc import Callable
-from functools import partial, wraps
+from __future__ import annotations
 
-from batch.types import BatchFunc, _ensure_batch_func
+from functools import partial, wraps
+from typing import TYPE_CHECKING
+
 from batch.utils import is_method
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from batch.types import BatchFunc
 
 
 def _dynamic_batch(
-        make_processor: Callable,
-        func: BatchFunc | None = None,
-        **kwargs,
+    make_processor: Callable,
+    func: BatchFunc | None = None,
 ):
-
     class _InstanceBatchProcessor:
         def __init__(self, _func: BatchFunc):
             self.func = _func
@@ -19,18 +23,16 @@ def _dynamic_batch(
             func_name = f"__batched_{self.func.__name__}"
             if func_name not in instance.__dict__:
                 _func = partial(self.func, instance)
-                processor = make_processor(_func, **kwargs)
+                processor = make_processor(_func)
                 instance.__dict__[func_name] = processor
 
             return instance.__dict__[func_name]
 
     def _batch_decorator(_func: BatchFunc):
-        _ensure_batch_func(_func)
-
         batch_func = (
             _InstanceBatchProcessor(_func)
             if is_method(_func)
-            else make_processor(_func, **kwargs)
+            else make_processor(_func)
         )
 
         return wraps(_func)(batch_func)

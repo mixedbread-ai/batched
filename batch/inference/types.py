@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Awaitable
+from collections.abc import Callable
 
 from numpy.typing import NDArray
 from torch import Tensor
 
-from batch.utils import torch_or_np, first
+from batch.utils import first, torch_or_np
 
 NDArrayOrTensor = NDArray | Tensor
 
@@ -13,7 +13,6 @@ ModelFeatures = dict[str, NDArrayOrTensor | list[NDArrayOrTensor]]
 ModelOutputs = NDArrayOrTensor | list[NDArrayOrTensor]
 
 BatchInfer = Callable[[ModelFeatures], ModelOutputs]
-AsyncBatchInfer = Callable[[ModelFeatures], Awaitable[ModelOutputs]]
 
 
 def stack_features(inputs: list[ModelFeatures], pad_tokens: dict[str, int]) -> ModelFeatures:
@@ -24,9 +23,7 @@ def stack_features(inputs: list[ModelFeatures], pad_tokens: dict[str, int]) -> M
     keys = inputs[0].keys()
     max_length = max(item[first(keys)].shape[0] for item in inputs)
 
-    padded_tensors = {
-        key: lib.full((len(inputs), max_length), pad_tokens.get(key, 0), dtype=lib.int64) for key in keys
-    }
+    padded_tensors = {key: lib.full((len(inputs), max_length), pad_tokens.get(key, 0), dtype=lib.int64) for key in keys}
 
     for i, item in enumerate(inputs):
         for key, tensor in padded_tensors.items():
@@ -57,4 +54,3 @@ def unstack_outputs(outputs: ModelOutputs) -> list[ModelOutputs]:
     if isinstance(outputs, list):
         return [[output[i] for output in outputs] for i in range(n_items)]
     return [outputs[i] for i in range(n_items)]
-

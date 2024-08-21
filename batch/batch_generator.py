@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from queue import Queue
+from queue import PriorityQueue
 from threading import Event
 from typing import TYPE_CHECKING, Generic
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 @dataclass(order=True)
 class Item(Generic[T, U]):
     content: T = field(compare=False)
-    prioritized: bool = field(default=False, compare=False)
+    prioritized: bool = field(default=False, compare=True)
 
     result: U = field(default=None, compare=False)
     event: Event = field(default_factory=Event, compare=False)
@@ -40,11 +40,11 @@ class BatchGenerator(Generic[T, U]):
     def __init__(
         self,
         batch_size: int = 32,
-        timeout: float = 5.0,
+        timeout_ms: float = 5.0,
     ) -> None:
-        self._queue = Queue()
+        self._queue = PriorityQueue()
         self._batch_size = batch_size
-        self._timeout = timeout / 1000
+        self._timeout = timeout_ms / 1000
 
     def __len__(self) -> int:
         return self._queue.qsize()
@@ -56,22 +56,20 @@ class BatchGenerator(Generic[T, U]):
     def optimal_batches(self) -> Generator[list[Item[T, U]], None, None]:
         while True:
             queue_size = self._queue.qsize()
+
             if queue_size == 0:
                 time.sleep(self._timeout)
                 continue
+
             elif queue_size < self._batch_size:
                 time.sleep(self._timeout)
 
             n_batches = max(1, queue_size // self._batch_size)
             size_batches = self._batch_size * n_batches
 
-            new_items_l = []
-            for _ in range(size_batches):
-                if not self._queue.empty():
-                    new_items_l.append(self._queue.get())
+            new_items_l = [self._queue.get() for _ in range(size_batches) if not self._queue.empty()]
 
             for i in range(n_batches):
-                mini_batch = new_items_l[self._batch_size * i: self._batch_size * (i + 1)]
+                mini_batch = new_items_l[self._batch_size * i : self._batch_size * (i + 1)]
                 if mini_batch:
                     yield mini_batch
-

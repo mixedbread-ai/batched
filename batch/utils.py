@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
-from collections.abc import Callable, Iterable
-from functools import wraps, partial
 from types import FunctionType, MethodType
-from typing import TypeVar, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
 
 T = TypeVar("T")
 
@@ -63,10 +63,6 @@ def torch_or_np(item: Any):
     raise ValueError(msg)
 
 
-def ensure_async(func: Callable) -> Callable:
-    return func if asyncio.iscoroutinefunction(func) else partial(asyncio.to_thread, func)
-
-
 def is_method(func: Callable) -> bool:
     """Check if a callable is a method.
 
@@ -80,26 +76,3 @@ def is_method(func: Callable) -> bool:
     if not isinstance(func, (FunctionType, MethodType)):
         return False
     return next(iter(inspect.signature(func).parameters)) in ("self", "cls")
-
-
-def ensure_dict_input(func: Callable) -> Callable:
-    sig = inspect.signature(func)
-    params = sig.parameters
-
-    expect_dict = (
-        len(params) == 1 and
-        next(iter(params.values())).annotation == dict
-    )
-
-    @wraps(func)
-    def wrapper(arg: dict):
-        return func(arg) if expect_dict else func(**arg)
-
-    return wrapper
-
-
-
-
-
-
-    

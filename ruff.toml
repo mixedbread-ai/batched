@@ -38,7 +38,7 @@ target-version = "py310"
 
 [lint]
 select = ["ALL"]
-ignore = ["D", "ANN", "PLR", "COM812", "ISC001", "T201", "B905", "UP"]
+ignore = ["D", "ANN", "PLR", "COM812", "ISC001", "T201", "B905", "UP", "PD"]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]

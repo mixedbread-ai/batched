@@ -29,16 +29,10 @@ def _dynamic_batch(
             return instance.__dict__[func_name]
 
     def _batch_decorator(_func: BatchFunc):
-        batch_func = (
-            _InstanceBatchProcessor(_func)
-            if is_method(_func)
-            else make_processor(_func)
-        )
+        batch_func = _InstanceBatchProcessor(_func) if is_method(_func) else make_processor(_func)
 
         return wraps(_func)(batch_func)
 
     if func is None:
         return _batch_decorator
     return _batch_decorator(func)
-
-

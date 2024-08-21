@@ -15,11 +15,11 @@ def _validate_batch_output(batch_inputs: list[T], batch_outputs: list[U]) -> Non
     Validate that the batch output has the same length as the batch inputs.
 
     Args:
-        batch_inputs (list): The batch inputs
-        batch_outputs (list): The batch outputs
+        batch_inputs (list[T]): The batch inputs.
+        batch_outputs (list[U]): The batch outputs.
 
     Raises:
-        ValueError: If the batch output length does not match the batch input length
+        ValueError: If the batch output length does not match the batch input length.
     """
     if len(batch_inputs) != len(batch_outputs):
         msg = f"Batch output length ({len(batch_outputs)}) " f"does not match batch input length ({len(batch_inputs)})"
@@ -39,8 +39,8 @@ class BatchProcessorStats:
         Update the statistics based on the batch size and processing time.
 
         Args:
-            batch_size (int): The size of the batch
-            processing_time (float): The time taken to process the batch
+            batch_size (int): The size of the processed batch.
+            processing_time (float): The time taken to process the batch in seconds.
         """
         self.total_processed += batch_size
         self.total_batches += 1
@@ -51,10 +51,13 @@ class BatchProcessorStats:
 
     def clone(self, *, queue_size: int) -> BatchProcessorStats:
         """
-        Clone the statistics object.
+        Create a clone of the current statistics object with an updated queue size.
+
+        Args:
+            queue_size (int): The new queue size to set in the cloned object.
 
         Returns:
-            BatchProcessorStats: The cloned statistics object
+            BatchProcessorStats: A new BatchProcessorStats object with updated queue size and copied statistics.
         """
         return BatchProcessorStats(
             queue_size=queue_size,
@@ -63,4 +66,3 @@ class BatchProcessorStats:
             avg_batch_size=self.avg_batch_size,
             avg_processing_time=self.avg_processing_time,
         )
-

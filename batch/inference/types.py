@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TypeVar, Union
 
 import numpy as np
 
@@ -15,8 +15,8 @@ except ImportError:
 
 NDArrayOrTensor = TypeVar("NDArrayOrTensor", "np.ndarray", "torch.Tensor")
 
-ModelFeatures = dict[str, NDArrayOrTensor | list[NDArrayOrTensor]]
-ModelOutputs = NDArrayOrTensor | list[NDArrayOrTensor]
+ModelFeatures = dict[str, Union[NDArrayOrTensor, list[NDArrayOrTensor]]]
+ModelOutputs = Union[NDArrayOrTensor, list[NDArrayOrTensor]]
 
 BatchInfer = Callable[[ModelFeatures], ModelOutputs]
 
@@ -34,7 +34,7 @@ def torch_or_np(item):
         ImportError: If torch is not installed, but a tensor is passed.
         ValueError: If the input type is not supported.
     """
-    if isinstance(item, dict | list | tuple):
+    if isinstance(item, (dict, list, tuple)):
         return torch_or_np(first(item.values()) if isinstance(item, dict) else item[0])
     if isinstance(item, (np.ndarray, np.generic)):
         return np

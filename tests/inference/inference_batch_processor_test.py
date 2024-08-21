@@ -8,7 +8,7 @@ from batch.types import BatchProcessorStats
 
 def test_batch_processor_initialization():
     def dummy_batch_func(features: ModelFeatures) -> ModelOutputs:
-        return {"output": features["input"]}
+        return features["input"]
 
     processor = BatchProcessor(dummy_batch_func, batch_size=32, timeout_ms=5.0, small_batch_threshold=8)
     

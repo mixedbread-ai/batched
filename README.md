@@ -99,13 +99,13 @@ The API offers several key decorators:
   - Return a list of results (`list[U]`) of the same length.
 
 
-```diff
-+ import batch
+```python
+import batch
 
-+  @batch.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
-   def my_function(items: list[T]) -> list[U]:
-      # Custom processing logic here
-      return [item * 2 for item in items]
+@batch.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
+def my_function(items: list[T]) -> list[U]:
+   # Custom processing logic here
+   return [item * 2 for item in items]
 
 # Allow single item
 my_function(2)
@@ -123,17 +123,17 @@ print(my_function.stats)
   - Return a tensor or numpy array (`ModelOutputs`). Each row is a single inference result.
   - `ModelFeatures[feature_name].shape[0] == ModelOutputs.shape[0]`
 
-```diff
-+  from batch import inference
+```python
+from batch import inference
 
-+  @inference.dynamically(pad_token={"input_ids": 0})
-   def my_inference_function(features: ModelFeatures) -> ModelOutputs:
-      # input_ids = features["input_ids"]
-      # attention_mask = features["attention_mask"]
-      # token_type_ids = features["token_type_ids"]
+@inference.dynamically(pad_token={"input_ids": 0})
+def my_inference_function(features: ModelFeatures) -> ModelOutputs:
+   # input_ids = features["input_ids"]
+   # attention_mask = features["attention_mask"]
+   # token_type_ids = features["token_type_ids"]
 
-      logits = model(**features)
-      return logits
+   logits = model(**features)
+   return logits
 
 my_inference_function(data)
 

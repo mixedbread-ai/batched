@@ -7,13 +7,14 @@ from batch.utils import is_method
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import Optional
 
     from batch.types import BatchFunc
 
 
 def _dynamic_batch(
     make_processor: Callable,
-    func: BatchFunc | None = None,
+    func: Optional[BatchFunc] = None,
 ):
     class _InstanceBatchProcessor:
         def __init__(self, _func: BatchFunc):

@@ -19,6 +19,7 @@ from batch.types import BatchProcessorStats
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import Optional
 
 
 class BatchProcessor:
@@ -45,7 +46,7 @@ class BatchProcessor:
         batch_size: int = 32,
         timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
-        pad_tokens: dict[str, int] | None = None,
+        pad_tokens: Optional[dict[str, int]] = None,
     ):
         """
         Initialize the BatchProcessor.
@@ -198,12 +199,12 @@ class BatchProcessor:
 
 
 def dynamically(
-    func: BatchInfer | None = None,
+    func: Optional[BatchInfer] = None,
     /,
     batch_size: int = 32,
     timeout_ms: float = 5.0,
     small_batch_threshold: int = 8,
-    pad_tokens: dict[str, int] | None = None,
+    pad_tokens: Optional[dict[str, int]] = None,
 ) -> Callable:
     """
     A decorator to create a BatchProcessor for the given function.

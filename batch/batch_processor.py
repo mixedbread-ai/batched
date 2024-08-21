@@ -1,7 +1,7 @@
 import threading
 import time
 from collections.abc import Callable
-from typing import Generic, overload
+from typing import Generic, Optional, Union, overload
 
 from batch.batch_generator import BatchGenerator, Item
 from batch.decorator import _dynamic_batch
@@ -97,7 +97,7 @@ class BatchProcessor(Generic[T, U]):
     @overload
     def __call__(self, items: list[T]) -> list[U]: ...
 
-    def __call__(self, items: T | list[T]) -> U | list[U]:
+    def __call__(self, items: Union[T, list[T]]) -> Union[U, list[U]]:
         """
         Process a single item or a list of items.
 
@@ -180,7 +180,7 @@ class BatchProcessor(Generic[T, U]):
 
 
 def dynamically(
-    func: BatchFunc | None = None,
+    func: Optional[BatchFunc] = None,
     /,
     batch_size: int = 32,
     timeout_ms: float = 5.0,

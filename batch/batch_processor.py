@@ -3,7 +3,7 @@ import time
 from collections.abc import Callable
 from typing import Generic, Optional, Union, overload
 
-from batch.batch_generator import BatchGenerator, Item
+from batch.batch_generator import BatchGenerator, BatchItem
 from batch.decorator import _dynamic_batch
 from batch.types import BatchFunc, BatchProcessorStats, T, U, _validate_batch_output
 
@@ -92,10 +92,12 @@ class BatchProcessor(Generic[T, U]):
             self._thread.join()
 
     @overload
-    def __call__(self, item: T) -> U: ...
+    def __call__(self, item: T) -> U:
+        ...
 
     @overload
-    def __call__(self, items: list[T]) -> list[U]: ...
+    def __call__(self, items: list[T]) -> list[U]:
+        ...
 
     def __call__(self, items: Union[T, list[T]]) -> Union[U, list[U]]:
         """
@@ -110,13 +112,28 @@ class BatchProcessor(Generic[T, U]):
         Returns:
             U | list[U]: The processed result for a single item, or a list of results for multiple items.
         """
-        if not self._running:
-            self.start()
-
         if isinstance(items, list):
-            return self._schedule(items)
+            items = self._schedule(items)
+            return [item.result() for item in items]
 
-        return self._schedule([items])[0]
+        return self._schedule([items])[0].result()
+
+    async def infer(self, item: T) -> U:
+        """
+        Infer the result of a single item asynchronously.
+
+        Args:
+            item (T): The item to infer.
+
+        Returns:
+            U: The inferred result.
+        """
+        import asyncio
+
+        if isinstance(item, list):
+            futures = self._schedule(item)
+            return await asyncio.gather(*[f.to_awaitable() for f in futures])
+        return await self._schedule([item])[0].to_awaitable()
 
     def _schedule(self, items: list[T]) -> list[U]:
         """
@@ -128,10 +145,13 @@ class BatchProcessor(Generic[T, U]):
         Returns:
             list[U]: The list of processed results.
         """
+        if not self._running:
+            self.start()
+
         prioritized = self.prioritize(items)
 
         new_priority_queue = [
-            Item[T, U](
+            BatchItem[T, U](
                 content=item,
                 priority=prio,
             )
@@ -139,7 +159,7 @@ class BatchProcessor(Generic[T, U]):
         ]
 
         self.batch_queue.extend(new_priority_queue)
-        return [item.get_result() for item in new_priority_queue]
+        return new_priority_queue
 
     def _process_batches(self) -> None:
         """
@@ -150,7 +170,6 @@ class BatchProcessor(Generic[T, U]):
                 break
 
             start_time = time.time()
-
             try:
                 batch_inputs = [item.content for item in batch]
                 batch_outputs = self.batch_func(batch_inputs)
@@ -158,7 +177,7 @@ class BatchProcessor(Generic[T, U]):
                 _validate_batch_output(batch_inputs, batch_outputs)
 
                 for item, output in zip(batch, batch_outputs):
-                    item.complete(output)
+                    item.set_result(output)
 
             except Exception as e:
                 for item in batch:

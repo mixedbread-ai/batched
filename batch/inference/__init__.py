@@ -1,4 +1,3 @@
-from .batch_processor import dynamically
-from .types import ModelFeatures, ModelOutputs
+from .model_batch_processor import ModelBatchProcessor, dynamically
 
-__all__ = ["dynamically", "ModelFeatures", "ModelOutputs"]
+__all__ = ["ModelBatchProcessor", "dynamically"]

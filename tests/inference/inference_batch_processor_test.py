@@ -2,15 +2,15 @@ import pytest
 import time
 import numpy as np
 import torch
-from batch.inference.batch_processor import BatchProcessor, dynamically
-from batch.inference.types import ModelFeatures, ModelOutputs
+from batch.aio.inference.model_batch_processor import TransformerBatchProcessor, dynamically
+from batch.inference.helper import ModelFeatures, ModelOutputs
 from batch.types import BatchProcessorStats
 
 def test_batch_processor_initialization():
     def dummy_batch_func(features: ModelFeatures) -> ModelOutputs:
         return features["input"]
 
-    processor = BatchProcessor(dummy_batch_func, batch_size=32, timeout_ms=5.0, small_batch_threshold=8)
+    processor = TransformerBatchProcessor(dummy_batch_func, batch_size=32, timeout_ms=5.0, small_batch_threshold=8)
     
     assert processor.batch_func == dummy_batch_func
     assert processor.batch_queue._batch_size == 32
@@ -23,7 +23,7 @@ def test_batch_processor_start_and_shutdown():
     def dummy_batch_func(features: ModelFeatures) -> ModelOutputs:
         return features["input"]
 
-    processor = BatchProcessor(dummy_batch_func)
+    processor = TransformerBatchProcessor(dummy_batch_func)
     
     processor.start()
     assert processor._running
@@ -37,7 +37,7 @@ def test_batch_processor_call():
     def dummy_batch_func(features: ModelFeatures) -> ModelOutputs:
         return features["input"] * 2
 
-    processor = BatchProcessor(dummy_batch_func)
+    processor = TransformerBatchProcessor(dummy_batch_func)
     
     result = processor(input=np.array([[1, 2, 3], [4, 5, 6]]))
     np.testing.assert_array_equal(result, np.array([[2, 4, 6], [8, 10, 12]]))
@@ -46,7 +46,7 @@ def test_batch_processor_prioritize():
     def dummy_batch_func(features: ModelFeatures) -> ModelOutputs:
         return features["input"]
 
-    processor = BatchProcessor(dummy_batch_func, small_batch_threshold=3)
+    processor = TransformerBatchProcessor(dummy_batch_func, small_batch_threshold=3)
     
     assert processor.prioritize([{"input": np.array([[1, 2], [3, 4]])}, {"input": np.array([[5, 6], [7, 8]])}]) == [0, 0]
     assert processor.prioritize([{"input": np.array([[1]])}, {"input": np.array([[2]])}, {"input": np.array([[3]])}, {"input": np.array([[4]])}]) == [1, 1, 1, 1]
@@ -56,7 +56,7 @@ def test_batch_processor_stats():
         time.sleep(0.1)  # Simulate some processing time
         return features["input"]
 
-    processor = BatchProcessor(dummy_batch_func, batch_size=2)
+    processor = TransformerBatchProcessor(dummy_batch_func, batch_size=2)
     
     processor(input=np.array([[1, 2], [3, 4]]))
     processor(input=np.array([[5, 6], [7, 8]]))
@@ -82,7 +82,7 @@ def test_batch_processor_exception_handling():
     def faulty_batch_func(features: ModelFeatures) -> ModelOutputs:
         raise ValueError("Test error")
 
-    processor = BatchProcessor(faulty_batch_func)
+    processor = TransformerBatchProcessor(faulty_batch_func)
     
     with pytest.raises(ValueError, match="Test error"):
         processor(input=np.array([[1, 2, 3], [4, 5, 6]]))
@@ -92,7 +92,7 @@ def test_batch_processor_concurrent_calls():
         time.sleep(0.1)
         return features["input"] * 2
 
-    processor = BatchProcessor(slow_batch_func, batch_size=5, timeout_ms=50.0)
+    processor = TransformerBatchProcessor(slow_batch_func, batch_size=5, timeout_ms=50.0)
 
     import threading
 
@@ -115,7 +115,7 @@ def test_batch_processor_with_pad_tokens():
     def pad_aware_batch_func(features: ModelFeatures) -> ModelOutputs:
         return np.sum(features["input"], axis=1)
 
-    processor = BatchProcessor(pad_aware_batch_func, batch_size=2, pad_tokens={"input": 0})
+    processor = TransformerBatchProcessor(pad_aware_batch_func, batch_size=2, pad_tokens={"input": 0})
     
     result1 = processor(input=np.array([[1, 2, 3]]))
     result2 = processor(input=np.array([[4, 5]]))

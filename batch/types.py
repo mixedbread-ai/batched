@@ -2,12 +2,28 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import TypeVar, Union
+
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 T = TypeVar("T")
 U = TypeVar("U")
 
 BatchFunc = Callable[[list[T]], list[U]]
+
+
+NDArrayOrTensor = TypeVar("NDArrayOrTensor", "np.ndarray", "torch.Tensor")
+ModelFeatures = dict[str, Union[NDArrayOrTensor, list[NDArrayOrTensor]]]
+ModelOutputs = Union[NDArrayOrTensor, list[NDArrayOrTensor]]
+BatchInfer = Callable[[ModelFeatures], ModelOutputs]
 
 
 def _validate_batch_output(batch_inputs: list[T], batch_outputs: list[U]) -> None:
@@ -17,13 +33,10 @@ def _validate_batch_output(batch_inputs: list[T], batch_outputs: list[U]) -> Non
     Args:
         batch_inputs (list[T]): The batch inputs.
         batch_outputs (list[U]): The batch outputs.
-
-    Raises:
-        ValueError: If the batch output length does not match the batch input length.
     """
-    if len(batch_inputs) != len(batch_outputs):
-        msg = f"Batch output length ({len(batch_outputs)}) " f"does not match batch input length ({len(batch_inputs)})"
-        raise ValueError(msg)
+    assert len(batch_inputs) == len(  # noqa: S101
+        batch_outputs
+    ), f"Batch output length ({len(batch_outputs)}) does not match batch input length ({len(batch_inputs)})"
 
 
 @dataclass

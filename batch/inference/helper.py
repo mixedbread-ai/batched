@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TypeVar, Union
+from typing import Any
 
-import numpy as np
-
+from batch.types import ModelFeatures, ModelOutputs
 from batch.utils import first
 
 try:
@@ -12,16 +10,13 @@ try:
 except ImportError:
     torch = None
 
-
-NDArrayOrTensor = TypeVar("NDArrayOrTensor", "np.ndarray", "torch.Tensor")
-
-ModelFeatures = dict[str, Union[NDArrayOrTensor, list[NDArrayOrTensor]]]
-ModelOutputs = Union[NDArrayOrTensor, list[NDArrayOrTensor]]
-
-BatchInfer = Callable[[ModelFeatures], ModelOutputs]
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 
-def torch_or_np(item):
+def torch_or_np(item: Any):
     """Determine whether to use torch or numpy based on the input type.
 
     Args:

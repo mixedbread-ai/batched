@@ -1,6 +1,6 @@
 import pytest
 import time
-from batch.batch_generator import BatchGenerator, Item
+from batch.batch_generator import BatchGenerator, BatchItem
 
 def test_batch_generator_initialization():
     generator = BatchGenerator(batch_size=32, timeout_ms=5.0)
@@ -11,7 +11,7 @@ def test_batch_generator_initialization():
 
 def test_batch_generator_extend():
     generator = BatchGenerator(batch_size=2, timeout_ms=5.0)
-    items = [Item(content=i) for i in range(5)]
+    items = [BatchItem(content=i) for i in range(5)]
     
     generator.extend(items)
     
@@ -20,7 +20,7 @@ def test_batch_generator_extend():
 
 def test_batch_generator_optimal_batches():
     generator = BatchGenerator(batch_size=2, timeout_ms=5.0)
-    items = [Item(content=i) for i in range(5)]
+    items = [BatchItem(content=i) for i in range(5)]
     generator.extend(items)
     
     batches = []
@@ -36,14 +36,14 @@ def test_batch_generator_optimal_batches():
     
     for batch in batches:
         for item in batch:
-            assert isinstance(item, Item)
+            assert isinstance(item, BatchItem)
 
     with pytest.raises(StopIteration):
         next(generator.optimal_batches())
 
 def test_batch_generator_timeout():
     generator = BatchGenerator(batch_size=2, timeout_ms=50.0)
-    items = [Item(content=i) for i in range(1)]
+    items = [BatchItem(content=i) for i in range(1)]
     generator.extend(items)
     
     start_time = time.time()
@@ -60,10 +60,10 @@ def test_batch_generator_timeout():
 def test_batch_generator_prioritized_items():
     generator = BatchGenerator(batch_size=2, timeout_ms=5.0)
     items = [
-        Item(content=1, priority=1),
-        Item(content=2, priority=2),
-        Item(content=3, priority=3),
-        Item(content=4, priority=4),
+        BatchItem(content=1, priority=1),
+        BatchItem(content=2, priority=2),
+        BatchItem(content=3, priority=3),
+        BatchItem(content=4, priority=4),
     ]
     generator.extend(items)
     
@@ -81,23 +81,23 @@ def test_batch_generator_prioritized_items():
         next(generator.optimal_batches())
 
 def test_item_complete_and_get_result():
-    item = Item(content="test")
+    item = BatchItem(content="test")
     
-    item.complete("result")
+    item.set_result("result")
     
-    assert item.get_result() == "result"
+    assert item.result() == "result"
 
 def test_item_exception():
-    item = Item(content="test")
+    item = BatchItem(content="test")
     
     item.set_exception(ValueError("Test exception"))
     
     with pytest.raises(ValueError, match="Test exception"):
-        item.get_result()
+        item.result()
 
 def test_batch_generator_stop():
     generator = BatchGenerator(batch_size=2, timeout_ms=5.0)
-    items = [Item(content=i) for i in range(5)]
+    items = [BatchItem(content=i) for i in range(5)]
     generator.extend(items)
 
     batches = []

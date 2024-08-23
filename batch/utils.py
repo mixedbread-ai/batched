@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Generator, Sequence, TypeVar
 
 if TYPE_CHECKING:
@@ -43,24 +44,25 @@ def is_method(func: Callable) -> bool:
     return len(params) > 1 and first(params) in ("self", "cls")
 
 
-def ensure_async(func: Callable[..., Any]) -> Callable[..., Coroutine[Any, Any, Any]]:
+def ensure_async(func: Callable[..., T] | Coroutine[Any, Any, T]) -> Callable[..., Coroutine[Any, Any, T]]:
     """Ensure a function is async.
 
-    This function takes any callable (sync or async) and returns an async callable.
+    This function takes any callable (sync or async) or coroutine and returns an async callable.
     If the input is already a coroutine function, it's returned as-is.
     Otherwise, it wraps the sync function to run in a separate thread.
 
     Args:
-        func (Callable[..., Any]): The function to ensure is async.
+        func (Callable[..., T] | Coroutine[Any, Any, T]): The function or coroutine to ensure is async.
 
     Returns:
-        Callable[..., Coroutine[Any, Any, Any]]: An async callable.
+        Callable[..., Coroutine[Any, Any, T]]: An async callable with the same return type as the input function.
 
     """
     if asyncio.iscoroutinefunction(func):
         return func
 
-    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+    @wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> T:
         return await asyncio.to_thread(func, *args, **kwargs)
 
     return wrapper

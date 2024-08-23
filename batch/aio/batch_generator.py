@@ -28,7 +28,7 @@ class AsyncBatchItem(Generic[T, U]):
     """
 
     content: T = field(compare=False)
-    future: asyncio.Future = field(compare=False)
+    future: asyncio.Future[U] = field(compare=False)
     priority: int = field(default=1, compare=True)
 
     def set_result(self, result: U) -> None:
@@ -38,10 +38,8 @@ class AsyncBatchItem(Generic[T, U]):
         Args:
             result (U): The result of processing the item.
         """
-        try:  # noqa: SIM105
+        with contextlib.suppress(asyncio.InvalidStateError):
             self.future.set_result(result)
-        except asyncio.InvalidStateError:
-            pass
 
     def set_exception(self, exception: Exception) -> None:
         """

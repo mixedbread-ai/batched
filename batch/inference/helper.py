@@ -16,6 +16,14 @@ except ImportError:
     np = None
 
 
+def _is_np(item: Any) -> bool:
+    return np and isinstance(item, (np.ndarray, np.generic))
+
+
+def _is_torch(item: Any) -> bool:
+    return torch and (torch.is_tensor(item) or isinstance(item, (torch.dtype, torch.Number)))
+
+
 def torch_or_np(item: Any):
     """Determine whether to use torch or numpy based on the input type.
 
@@ -29,16 +37,16 @@ def torch_or_np(item: Any):
         ImportError: If torch is not installed, but a tensor is passed.
         ValueError: If the input type is not supported.
     """
-    if isinstance(item, (dict, list, tuple)):
+    if not np and not torch:
+        raise ImportError("Either numpy or torch needs to be installed.")
+
+    if isinstance(item, (dict, list, tuple)) and item:
         return torch_or_np(first(item.values()) if isinstance(item, dict) else item[0])
-    if isinstance(item, (np.ndarray, np.generic)):
+
+    if _is_np(item):
         return np
 
-    if not torch:
-        msg = "Torch is not installed. Please install it with `pip install torch` to use this function."
-        raise ImportError(msg)
-
-    if torch.is_tensor(item) or isinstance(item, (torch.dtype, torch.Number)):
+    if _is_torch(item):
         return torch
 
     msg = f"Unsupported input type: {type(item)}"
@@ -56,10 +64,7 @@ def stack_features(inputs: list[ModelFeatures], pad_tokens: dict[str, int]) -> M
     Returns:
         ModelFeatures: Stacked features as a single batch.
     """
-    if not inputs:
-        return {}
-
-    lib = torch_or_np(inputs[0])
+    lib = torch_or_np(inputs)
     keys = inputs[0].keys()
     max_length = max(item[first(keys)].shape[0] for item in inputs)
 

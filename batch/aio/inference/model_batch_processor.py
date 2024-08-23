@@ -40,12 +40,43 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[ModelFeatures, ModelOutputs])
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
         """
         super().__init__(
-            _func=_func,
+            _func=_func,  # type: ignore
             batch_size=batch_size,
             timeout_ms=timeout_ms,
             small_batch_threshold=small_batch_threshold,
-            pad_tokens=pad_tokens,
         )
+
+        self.pad_tokens = pad_tokens or {}
+
+    async def _process_batches(self):
+        """
+        Process batches of items from the queue.
+
+        This method runs in a separate thread and continuously processes
+        batches until the processor is shut down.
+        """
+        async for batch in self.batch_queue.optimal_batches():
+            start_time = time.time()
+
+            try:
+                batch_inputs = stack_features(
+                    [item.content for item in batch],
+                    pad_tokens=self.pad_tokens,
+                )
+
+                batch_outputs = await self.batch_func(batch_inputs)
+
+                unstacked_outputs = unstack_outputs(batch_outputs)
+                for item, output in zip(batch, unstacked_outputs):
+                    item.set_result(output)
+
+            except Exception as e:  # noqa: BLE001
+                for item in batch:
+                    item.set_exception(e)
+
+            finally:
+                processing_time = time.time() - start_time
+                self._stats.update(len(batch), processing_time)
 
     @overload
     async def __call__(self, features: ModelFeatures, /) -> ModelOutputs:
@@ -68,46 +99,10 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[ModelFeatures, ModelOutputs])
         Returns:
             ModelOutputs: The processed model outputs.
         """
-        if not self._running:
-            self.start()
-
-        features = args[0] if args else kwargs
+        features: ModelFeatures = args[0] if args else kwargs
         unstacked_features = unstack_features(features)
-        outputs = self._schedule(unstacked_features)
+        outputs = await self._schedule(unstacked_features)
         return stack_outputs(outputs)
-
-    async def _process_batches(self):
-        """
-        Process batches of items from the queue.
-
-        This method runs in a separate thread and continuously processes
-        batches until the processor is shut down.
-        """
-        async for batch in self.batch_queue.optimal_batches():
-            if not self._running:
-                break
-
-            start_time = time.time()
-
-            try:
-                batch_inputs = stack_features(
-                    [item.content for item in batch],
-                    pad_tokens=self.pad_tokens,
-                )
-
-                batch_outputs = await self.batch_func(batch_inputs)
-
-                unstacked_outputs = unstack_outputs(batch_outputs)
-                for item, output in zip(batch, unstacked_outputs):
-                    item.set_result(output)
-
-            except Exception as e:  # noqa: BLE001
-                for item in batch:
-                    item.set_exception(e)
-
-            finally:
-                processing_time = time.time() - start_time
-                self._stats.update(len(batch), processing_time)
 
 
 def dynamically(

@@ -51,7 +51,7 @@ class AsyncBatchProcessor(Generic[T, U]):
         self._task = self._loop.create_task(self._process_batches())
         self._stats = BatchProcessorStats()
 
-    def _determine_priority(self, items: list[T]) -> list[bool]:
+    def _determine_priority(self, items: list[T]) -> list[int]:
         """
         Determine if items should be prioritized based on the batch size.
 
@@ -61,8 +61,8 @@ class AsyncBatchProcessor(Generic[T, U]):
         Returns:
             list[bool]: A list of boolean values indicating the priority of each item.
         """
-        prioritized = len(items) <= self.small_batch_threshold
-        return [prioritized] * len(items)
+        priority = 0 if len(items) <= self.small_batch_threshold else 1
+        return [priority] * len(items)
 
     async def _schedule(self, items: list[T]) -> list[U]:
         """
@@ -86,7 +86,7 @@ class AsyncBatchProcessor(Generic[T, U]):
         ]
         await self.batch_queue.extend(batch_items)
 
-        return await asyncio.gather(*[item.future for item in batch_items])
+        return [await asyncio.gather(*[item.future for item in batch_items])]
 
     async def _process_batches(self) -> None:
         """

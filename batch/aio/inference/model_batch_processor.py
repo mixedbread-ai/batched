@@ -6,21 +6,19 @@ from typing import TYPE_CHECKING, overload
 from batch.aio.batch_processor import AsyncBatchProcessor
 from batch.decorator import _dynamic_batch
 from batch.inference.helper import (
-    ModelFeatures,
-    ModelOutputs,
     stack_features,
     stack_outputs,
     unstack_features,
     unstack_outputs,
 )
+from batch.types import BatchInfer, Feature
 
 if TYPE_CHECKING:
-    from batch.types import BatchInfer
     from collections.abc import Callable
     from typing import Optional
 
 
-class AsyncModelBatchProcessor(AsyncBatchProcessor[ModelFeatures, ModelOutputs]):
+class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature]):
     def __init__(
         self,
         _func: BatchInfer,
@@ -40,7 +38,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[ModelFeatures, ModelOutputs])
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
         """
         super().__init__(
-            _func=_func,  # type: ignore
+            _func=_func,  # type: ignore[arg-type]
             batch_size=batch_size,
             timeout_ms=timeout_ms,
             small_batch_threshold=small_batch_threshold,
@@ -79,14 +77,12 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[ModelFeatures, ModelOutputs])
                 self._stats.update(len(batch), processing_time)
 
     @overload
-    async def __call__(self, features: ModelFeatures, /) -> ModelOutputs:
-        ...
+    async def __call__(self, features: dict[str, Feature], /) -> Feature: ...
 
     @overload
-    async def __call__(self, **features: ModelFeatures) -> ModelOutputs:
-        ...
+    async def __call__(self, **features: Feature) -> Feature: ...
 
-    async def __call__(self, *args, **kwargs) -> ModelOutputs:
+    async def __call__(self, *args, **kwargs) -> Feature:
         """
         Process the input features and return the model outputs.
 
@@ -99,7 +95,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[ModelFeatures, ModelOutputs])
         Returns:
             ModelOutputs: The processed model outputs.
         """
-        features: ModelFeatures = args[0] if args else kwargs
+        features = args[0] if args else kwargs
         unstacked_features = unstack_features(features)
         outputs = await self._schedule(unstacked_features)
         return stack_outputs(outputs)

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from batch.types import ModelFeatures, ModelOutputs
 from batch.utils import first
 
 try:
@@ -14,6 +13,9 @@ try:
     import numpy as np
 except ImportError:
     np = None
+
+if TYPE_CHECKING:
+    from batch.types import Feature
 
 
 def _is_np(item: Any) -> bool:
@@ -38,7 +40,8 @@ def torch_or_np(item: Any):
         ValueError: If the input type is not supported.
     """
     if not np and not torch:
-        raise ImportError("Either numpy or torch needs to be installed.")
+        msg = "Either numpy or torch needs to be installed."
+        raise ImportError(msg)
 
     if isinstance(item, (dict, list, tuple)) and item:
         return torch_or_np(first(item.values()) if isinstance(item, dict) else item[0])
@@ -53,7 +56,7 @@ def torch_or_np(item: Any):
     raise ValueError(msg)
 
 
-def stack_features(inputs: list[ModelFeatures], pad_tokens: dict[str, int]) -> ModelFeatures:
+def stack_features(inputs: list[dict[str, Feature]], pad_tokens: dict[str, int]) -> dict[str, Feature]:
     """
     Stack a list of model features into a single batch.
 
@@ -78,7 +81,7 @@ def stack_features(inputs: list[ModelFeatures], pad_tokens: dict[str, int]) -> M
     return padded_tensors
 
 
-def unstack_features(inputs: ModelFeatures) -> list[ModelFeatures]:
+def unstack_features(inputs: dict[str, Feature]) -> list[dict[str, Feature]]:
     """
     Unstack a batch of model features into a list of individual features.
 
@@ -93,7 +96,7 @@ def unstack_features(inputs: ModelFeatures) -> list[ModelFeatures]:
     return [{key: inputs[key][i] for key in keys} for i in range(n_items)]
 
 
-def stack_outputs(outputs: list[ModelOutputs]) -> ModelOutputs:
+def stack_outputs(outputs: list[Feature]) -> Feature:
     """
     Stack a list of model outputs into a single batch.
 
@@ -111,7 +114,7 @@ def stack_outputs(outputs: list[ModelOutputs]) -> ModelOutputs:
     return lib.stack(outputs)
 
 
-def unstack_outputs(outputs: ModelOutputs) -> list[ModelOutputs]:
+def unstack_outputs(outputs: Feature) -> list[Feature]:
     """
     Unstack a batch of model outputs into a list of individual outputs.
 

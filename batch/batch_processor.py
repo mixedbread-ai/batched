@@ -54,7 +54,7 @@ class BatchProcessor(Generic[T, U]):
         self._lock = threading.Lock()
         self._stats = BatchProcessorStats()
 
-    def prioritize(self, items: list[T]) -> list[int]:
+    def _determine_priority(self, items: list[T]) -> list[int]:
         """
         Determine if items should be prioritized based on the batch size.
 
@@ -91,51 +91,7 @@ class BatchProcessor(Generic[T, U]):
         if self._thread:
             self._thread.join()
 
-    @overload
-    def __call__(self, item: T) -> U:
-        ...
-
-    @overload
-    def __call__(self, items: list[T]) -> list[U]:
-        ...
-
-    def __call__(self, items: Union[T, list[T]]) -> Union[U, list[U]]:
-        """
-        Process a single item or a list of items.
-
-        This method starts the batch processor if it's not already running,
-        then schedules the item(s) for processing.
-
-        Args:
-            items (T | list[T]): A single item or a list of items to process.
-
-        Returns:
-            U | list[U]: The processed result for a single item, or a list of results for multiple items.
-        """
-        if isinstance(items, list):
-            items = self._schedule(items)
-            return [item.result() for item in items]
-
-        return self._schedule([items])[0].result()
-
-    async def infer(self, item: T) -> U:
-        """
-        Infer the result of a single item asynchronously.
-
-        Args:
-            item (T): The item to infer.
-
-        Returns:
-            U: The inferred result.
-        """
-        import asyncio
-
-        if isinstance(item, list):
-            futures = self._schedule(item)
-            return await asyncio.gather(*[f.to_awaitable() for f in futures])
-        return await self._schedule([item])[0].to_awaitable()
-
-    def _schedule(self, items: list[T]) -> list[U]:
+    def _schedule(self, items: list[T]) -> list[BatchItem[T, U]]:
         """
         Schedule items for processing and return their results.
 
@@ -148,7 +104,7 @@ class BatchProcessor(Generic[T, U]):
         if not self._running:
             self.start()
 
-        prioritized = self.prioritize(items)
+        prioritized = self._determine_priority(items)
 
         new_priority_queue = [
             BatchItem[T, U](
@@ -179,7 +135,7 @@ class BatchProcessor(Generic[T, U]):
                 for item, output in zip(batch, batch_outputs):
                     item.set_result(output)
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 for item in batch:
                     item.set_exception(e)
 
@@ -196,6 +152,57 @@ class BatchProcessor(Generic[T, U]):
             BatchProcessorStats: The current statistics.
         """
         return self._stats.clone(queue_size=len(self.batch_queue))
+
+    @overload
+    def __call__(self, item: T) -> U: ...
+
+    @overload
+    def __call__(self, items: list[T]) -> list[U]: ...
+
+    def __call__(self, items: Union[T, list[T]]) -> Union[U, list[U]]:
+        """
+        Process a single item or a list of items.
+
+        This method starts the batch processor if it's not already running,
+        then schedules the item(s) for processing.
+
+        Args:
+            items (T | list[T]): A single item or a list of items to process.
+
+        Returns:
+            U | list[U]: The processed result for a single item, or a list of results for multiple items.
+        """
+        if isinstance(items, list):
+            items = self._schedule(items)
+            return [item.result() for item in items]
+
+        return self._schedule([items])[0].result()
+
+    @overload
+    async def acall(self, item: T) -> U: ...
+
+    @overload
+    async def acall(self, items: list[T]) -> list[U]: ...
+
+    async def acall(self, item: Union[T, list[T]]) -> Union[U, list[U]]:
+        """
+        Infer the result of a single item asynchronously.
+
+        Args:
+            item (T): The item to infer.
+
+        Returns:
+            U: The inferred result.
+        """
+        import asyncio
+
+        if isinstance(item, list):
+            futures = self._schedule(item)
+            return list(await asyncio.gather(*[f.to_awaitable() for f in futures]))
+        return await self._schedule([item])[0].to_awaitable()
+
+    def __del__(self):
+        self.shutdown()
 
 
 def dynamically(

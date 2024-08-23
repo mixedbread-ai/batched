@@ -54,8 +54,8 @@ def test_batch_processor_prioritize():
 
     processor = BatchProcessor(dummy_batch_func, small_batch_threshold=3)
     
-    assert processor.prioritize([1, 2]) == [0, 0]
-    assert processor.prioritize([1, 2, 3, 4]) == [1, 1, 1, 1]
+    assert processor._determine_priority([1, 2]) == [0, 0]
+    assert processor._determine_priority([1, 2, 3, 4]) == [1, 1, 1, 1]
 
 def test_batch_processor_stats():
     def dummy_batch_func(items):
@@ -63,7 +63,6 @@ def test_batch_processor_stats():
         return items
 
     processor = BatchProcessor(dummy_batch_func, batch_size=2)
-    
     processor([1, 2, 3, 4])
     
     stats = processor.stats

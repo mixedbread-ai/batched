@@ -6,21 +6,19 @@ from typing import TYPE_CHECKING, overload
 from batch.batch_processor import BatchProcessor
 from batch.decorator import _dynamic_batch
 from batch.inference.helper import (
-    ModelFeatures,
-    ModelOutputs,
     stack_features,
     stack_outputs,
     unstack_features,
     unstack_outputs,
 )
-from batch.types import BatchInfer
+from batch.types import BatchInfer, Feature
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Optional
 
 
-class ModelBatchProcessor(BatchProcessor[ModelFeatures, ModelOutputs]):
+class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
     def __init__(
         self,
         _func: BatchInfer,
@@ -40,41 +38,14 @@ class ModelBatchProcessor(BatchProcessor[ModelFeatures, ModelOutputs]):
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
         """
         super().__init__(
-            _func=_func,
+            _func=_func,  # type: ignore[arg-type]
             batch_size=batch_size,
             timeout_ms=timeout_ms,
             small_batch_threshold=small_batch_threshold,
-            pad_tokens=pad_tokens,
         )
 
-    @overload
-    def __call__(self, features: ModelFeatures, /) -> ModelOutputs:
-        ...
-
-    @overload
-    def __call__(self, **features: ModelFeatures) -> ModelOutputs:
-        ...
-
-    def __call__(self, *args, **kwargs) -> ModelOutputs:
-        """
-        Process the input features and return the model outputs.
-
-        This method can be called with either positional or keyword arguments.
-
-        Args:
-            *args: Positional arguments (should be a single ModelFeatures object).
-            **kwargs: Keyword arguments representing ModelFeatures.
-
-        Returns:
-            ModelOutputs: The processed model outputs.
-        """
-        if not self._running:
-            self.start()
-
-        features = args[0] if args else kwargs
-        unstacked_features = unstack_features(features)
-        outputs = self._schedule(unstacked_features)
-        return stack_outputs(outputs)
+        self.batch_func = _func
+        self.pad_tokens = pad_tokens or {}
 
     def _process_batches(self):
         """
@@ -108,6 +79,58 @@ class ModelBatchProcessor(BatchProcessor[ModelFeatures, ModelOutputs]):
             finally:
                 processing_time = time.time() - start_time
                 self._stats.update(len(batch), processing_time)
+
+    @overload
+    def __call__(self, features: dict[str, Feature], /) -> Feature: ...
+
+    @overload
+    def __call__(self, **features: Feature) -> Feature: ...
+
+    def __call__(self, *args, **kwargs) -> Feature:
+        """
+        Process the input features and return the model outputs.
+
+        This method can be called with either positional or keyword arguments.
+
+        Args:
+            *args: Positional arguments (should be a single ModelFeatures object).
+            **kwargs: Keyword arguments representing ModelFeatures.
+
+        Returns:
+            ModelOutputs: The processed model outputs.
+        """
+        features = args[0] if args else kwargs
+        unstacked_features = unstack_features(features)
+        futures = self._schedule(unstacked_features)
+        outputs = [future.result() for future in futures]
+        return stack_outputs(outputs)
+
+    @overload
+    async def acall(self, features: dict[str, Feature], /) -> Feature: ...
+
+    @overload
+    async def acall(self, **features: Feature) -> Feature: ...
+
+    async def acall(self, *args, **kwargs) -> Feature:
+        """
+        Asynchronously process the input features and return the model outputs.
+
+        This method can be called with either positional or keyword arguments.
+
+        Args:
+            *args: Positional arguments (should be a single ModelFeatures object).
+            **kwargs: Keyword arguments representing ModelFeatures.
+
+        Returns:
+            ModelOutputs: The processed model outputs.
+        """
+        import asyncio
+
+        features = args[0] if args else kwargs
+        unstacked_features = unstack_features(features)
+        futures = self._schedule(unstacked_features)
+        outputs = list(await asyncio.gather(*[f.to_awaitable() for f in futures]))
+        return stack_outputs(outputs)
 
 
 def dynamically(

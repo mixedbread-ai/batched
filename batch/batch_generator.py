@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from dataclasses import dataclass, field
 from queue import PriorityQueue
@@ -35,7 +36,7 @@ class BatchItem(Generic[T, U]):
     priority: int = field(default=1, compare=True)
     future: Future = field(default_factory=Future, compare=False)
 
-    def to_awaitable(self) -> Generator[U, None, None]:
+    def to_awaitable(self) -> asyncio.Future[U]:
         """Await the result of the item's future."""
         return asyncio.wrap_future(self.future)
 
@@ -46,10 +47,8 @@ class BatchItem(Generic[T, U]):
         Args:
             result (U): The result of processing the item.
         """
-        try:  # noqa: SIM105
+        with contextlib.suppress(InvalidStateError):
             self.future.set_result(result)
-        except InvalidStateError:
-            pass
 
     def set_exception(self, exception: Exception) -> None:
         """
@@ -58,7 +57,8 @@ class BatchItem(Generic[T, U]):
         Args:
             exception (Exception): The exception that occurred.
         """
-        self.future.set_exception(exception)
+        with contextlib.suppress(InvalidStateError):
+            self.future.set_exception(exception)
 
     def result(self) -> U:
         """
@@ -151,6 +151,9 @@ class BatchGenerator(Generic[T, U]):
 
             batch_items = [self._queue._get() for _ in range(queue_size)]  # noqa: SLF001
             for batch in batch_iter(batch_items, self._batch_size):
+                if self._stop_requested:
+                    break
+
                 yield batch
 
     def stop(self):

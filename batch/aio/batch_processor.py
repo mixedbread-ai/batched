@@ -86,7 +86,8 @@ class AsyncBatchProcessor(Generic[T, U]):
         ]
         await self.batch_queue.extend(batch_items)
 
-        return [await asyncio.gather(*[item.future for item in batch_items])]
+        futures = [item.future for item in batch_items]
+        return list(await asyncio.gather(*futures))
 
     async def _process_batches(self) -> None:
         """
@@ -120,12 +121,10 @@ class AsyncBatchProcessor(Generic[T, U]):
         return self._stats.clone(queue_size=len(self.batch_queue))
 
     @overload
-    async def __call__(self, item: T) -> U:
-        ...
+    async def __call__(self, item: T) -> U: ...
 
     @overload
-    async def __call__(self, items: list[T]) -> list[U]:
-        ...
+    async def __call__(self, items: list[T]) -> list[U]: ...
 
     async def __call__(self, items: Union[T, list[T]]) -> Union[U, list[U]]:
         """

@@ -30,7 +30,6 @@ Below is a basic example of how to use the Batch API to process text data in bat
 ```diff
    from sentence_transformers import SentenceTransformer
    import numpy as np
-   import time
 +  import batch
 
    class SentenceEmbedder:
@@ -49,26 +48,15 @@ Below is a basic example of how to use the Batch API to process text data in bat
    # Embed single sentences
    single_sent = "This is a test sentence."
    embedding = embedder.embed_sentences(single_sent)
-
-   print("Single sentence embedding shapes:")
-   print(f"Embedding shape: {embedding.shape}")
++  awaited_embedding = await embedder.embed_sentences.acall(single_sent)
 
    # Embed a batch of 1000 sentences
    batch_sentences = [f"This is test sentence number {i}." for i in range(1000)]
-
-   start_time = time.time()
    batch_embeddings = embedder.embed_sentences(batch_sentences)
-   end_time = time.time()
-
-   print("\nBatch embedding shapes:")
-   for i, embedding in enumerate(batch_embeddings[:5]):  # Print only first 5 for brevity
-      print(f"Embedding {i+1} shape: {embedding.shape}")
-
-   print(f"\nTime taken to embed 1000 sentences: {end_time - start_time:.4f} seconds")
++  awaited_batch_embeddings = await embedder.embed_sentences.acall(batch_sentences)
 
    # Check the statistics
-   print("\nBatch processing statistics:")
-   print(embedder.embed_sentences.stats)
++  stats = embedder.embed_sentences.stats
 ```
 
 ### Advanced Usage
@@ -91,9 +79,11 @@ def custom_batch_function(data):
 
 ### API Reference
 
-The API offers several key decorators:
+The API offers both thread and asyncio implementations for batching general tasks and inference tasks:
 
-- `@batch.dynamically`: Allows dynamic batching based on specified parameters such as `batch_size` and `timeout_ms`
+#### Thread Implementation
+
+- `@batch.dynamically`: Allows dynamic batching for general tasks.
 - The decorated method should:
   - Take in a list of items (`list[T]`)
   - Return a list of results (`list[U]`) of the same length.
@@ -113,15 +103,18 @@ my_function(2)
 # Allow batch of items
 my_function([2, 3, 4])
 
+# thread to Asyncio
+await my_function.acall([2, 3, 4])
+
 # Support stat checking
 print(my_function.stats)
 ```
 
 - `@batch.inference.dynamically`: Allows dynamic batching for inference tasks, handling numpy arrays and tensors with padding.
 - The decorated method should:
-  - Take in a dictionary of tensors or numpy arrays (`ModelFeatures`). Each tensor or numpy array is a value batch of a single feature, and the keys are the feature names.
-  - Return a tensor or numpy array (`ModelOutputs`). Each row is a single inference result.
-  - `ModelFeatures[feature_name].shape[0] == ModelOutputs.shape[0]`
+  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). Each tensor or numpy array is a value batch of a single feature, and the keys are the feature names.
+  - Return a tensor or numpy array (`Feature`). Each row is a single inference result.
+  - `features[feature_name].shape[0] == outputs.shape[0]`
 
 ```python
 from batch import inference
@@ -137,10 +130,61 @@ def my_inference_function(features: ModelFeatures) -> ModelOutputs:
 
 my_inference_function(data)
 
+# asyncio to thread
+await my_inference_function.acall(data)
+
 print(my_inference_function.stats)
 ```
 
+#### Asyncio Implementation
 
+- `@batch.aio.dynamically`: Allows dynamic batching for general tasks using `asyncio`.
+- The decorated method should:
+  - Take in a list of items (`list[T]`)
+  - Return a list of results (`list[U]`) of the same length.
+
+
+```python
+from batch import aio
+
+@aio.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
+await def my_function(items: list[T]) -> list[U]:
+   # Custom processing logic here
+   return [item * 2 for item in items]
+
+# Allow single item
+await my_function(2)
+
+# Allow batch of items
+await my_function([2, 3, 4])
+
+
+# Support stat checking
+print(my_function.stats)
+```
+
+- `@batch.aio.inference.dynamically`: Allows dynamic batching for inference tasks, handling numpy arrays and tensors with padding, using `asyncio`.
+- The decorated method should:
+  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). Each tensor or numpy array is a value batch of a single feature, and the keys are the feature names.
+  - Return a tensor or numpy array (`Feature`). Each row is a single inference result.
+  - `features[feature_name].shape[0] == outputs.shape[0]`
+
+```python
+from batch import aio
+
+@aio.inference.dynamically(pad_token={"input_ids": 0})
+def my_inference_function(features: ModelFeatures) -> ModelOutputs:
+   # input_ids = features["input_ids"]
+   # attention_mask = features["attention_mask"]
+   # token_type_ids = features["token_type_ids"]
+
+   logits = model(**features)
+   return logits
+
+await my_inference_function(data)
+
+print(my_inference_function.stats)
+```
 
 ## Contributing
 

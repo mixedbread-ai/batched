@@ -1,121 +1,209 @@
-# Baguetter
 
-Baguetter is a flexible, efficient, and hackable search engine library implemented in Python. It's designed for quickly benchmarking, implementing, and testing new search methods. Baguetter supports sparse (traditional), dense (semantic), and hybrid retrieval methods.
+# Batch (Dynamic Batching)
 
-**Note:** Baguetter is not built for production use-cases or scale. For such use-cases, please check out other search engine projects.
+The Batch API provides a flexible and efficient way to process multiple requests in a batch, with a primary focus on dynamic batching of inference workloads. It is designed to optimize throughput while maintaining a low-latency experience, especially useful in scenarios where you need to handle a high volume of requests simultaneously. It is designed for both async and sync execution.
 
-Paper: https://arxiv.org/abs/2408.06643
+![Batch Performance](/examples/inference_speed.png)
 
-## Features
+## Table of Contents
 
-- Sparse retrieval using BM25 and BMX algorithms
-- Dense retrieval using embeddings
-- Hybrid retrieval combining sparse and dense methods
-- Customizable text preprocessing pipeline
-- Multi-threaded indexing and searching
-- Evaluation tools for benchmarking
-- Easy integration with HuggingFace datasets and models for sharing
-- Hackable interface to quickly implement new methods
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Basic Example](#basic-example)
+  - [Advanced Usage](#advanced-usage)
+- [API Reference](#api-reference)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Why Dynamic Batching?
+
+Dynamic batching is a technique that automatically groups multiple incoming inference requests into a single batch for processing. This is particularly beneficial for inference workloads, where processing multiple inputs together can significantly improve throughput and efficiency.
+
+In machine learning models, dynamic batching matters because it optimizes hardware utilization, especially for GPUs and specialized AI hardware designed for parallel processing. By batching requests, we can fully leverage this parallel processing, leading to higher throughput. It also reduces overhead by amortizing fixed costs (such as data transfer and model initialization) across multiple requests, improving overall efficiency. Furthermore, dynamic batching enhances real-time performance by adapting to varying request rates, maintaining low latency during quiet periods while maximizing throughput during busy times.
+
+This makes dynamic batching a crucial technique for deploying ML models in production environments where request patterns can be unpredictable and resource optimization is key.
 
 ## Installation
 
+To install the Batch, you can use pip:
+
 ```bash
-pip install baguetter
+pip install batch
 ```
 
-## Quick Start
+## Usage
+
+### Basic Example
+
+Below is a basic example of how to use the Batch API to process text data in batches.
+
+```diff
+   from sentence_transformers import SentenceTransformer
+   import numpy as np
++  import batch
+
+   class SentenceEmbedder:
+      def __init__(self, model_name='mixedbread-ai/mxbai-embed-large-v1'):
+         self.model = SentenceTransformer(model_name)
+
++     @batch.dynamically
+      def embed_sentences(self, sentences: list[str]) -> list[np.ndarray]:
+         # Convert sentences to embeddings
+         embeddings = self.model.encode(sentences)
+         return [embedding for embedding in embeddings]
+
+   # Create an instance of SentenceEmbedder
+   embedder = SentenceEmbedder()
+
+   # Embed single sentences
+   single_sent = "This is a test sentence."
+   embedding = embedder.embed_sentences(single_sent)
++  awaited_embedding = await embedder.embed_sentences.acall(single_sent)
+
+   # Embed a batch of 1000 sentences
+   batch_sentences = [f"This is test sentence number {i}." for i in range(1000)]
+   batch_embeddings = embedder.embed_sentences(batch_sentences)
++  awaited_batch_embeddings = await embedder.embed_sentences.acall(batch_sentences)
+
+   # Check the statistics
++  stats = embedder.embed_sentences.stats
+```
+
+### Advanced Usage
+
+For more advanced usage, such as customizing batch size and timeout dynamically, the Batch API provides decorators that allow fine-grained control over the batching process.
+
+- **Batch Size**: You can specify the max. number of requests to group together in a single batch.
+- **Timeout**: The maximum time to wait for more requests before processing the batch.
+- **Small Batch Threshold**: The threshold to give more priority to smaller batches.
+- **Pad Token**: The token to use for padding when batching tensors, only for `@inference.dynamically`.
+
+For example:
 
 ```python
-from baguetter.indices import BMXSparseIndex
-
-# Create an index
-idx = BMXSparseIndex()
-
-# Add documents
-docs = [
-  "We all love baguette and cheese",
-  "Baguette is a great bread",
-  "Cheese is a great source of protein",
-  "Baguette is a great source of carbs",
-]
-doc_ids = ["1", "2", "3", "4"]
-
-idx.add_many(doc_ids, docs, show_progress=True)
-
-# Search
-results = idx.search("quick fox")
-print(results)
-
-# Search many
-results = idx.search_many(["quick fox", "baguette is great"])
-print(results)
+@batch.dynamically(batch_size=64, timeout_ms=5.0, small_batch_threshold=2)
+def custom_batch_function(data):
+    # Custom processing logic here
+    pass
 ```
 
-## Evaluation
+### API Reference
 
-Baguetter includes tools for evaluating search performance on standard benchmarks:
+The API offers both thread and asyncio implementations for batching general tasks and inference tasks:
+
+#### Thread Implementation
+
+- `@batch.dynamically`: Allows dynamic batching for general tasks.
+- The decorated method should:
+  - Take in a list of items (`list[T]`)
+  - Return a list of results (`list[U]`) of the same length.
 
 ```python
-from baguetter.evaluation import datasets, evaluate_retrievers
-from baguetter.indices import BM25SparseIndex, BMXSparseIndex
+import batch
 
-results = evaluate_retrievers(datasets.mteb_datasets_small, {"bm25": BM25SparseIndex, "bmx": BMXSparseIndex})
-results.save("eval_results")
+@batch.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
+def my_function(items: list[T]) -> list[U]:
+   # Custom processing logic here
+   return [item * 2 for item in items]
+
+# Allow single item
+my_function(2)
+
+# Allow batch of items
+my_function([2, 3, 4])
+
+# thread to Asyncio
+await my_function.acall([2, 3, 4])
+
+# Support stat checking
+print(my_function.stats)
 ```
 
-## Documentation
+- `@batch.inference.dynamically`: Allows dynamic batching for inference tasks, handling numpy arrays and tensors with padding.
+- The decorated method should:
+  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). Each tensor or numpy array is a value batch of a single feature, and the keys are the feature names.
+  - Return a tensor or numpy array (`Feature`). Each row is a single inference result.
+  - `features[feature_name].shape[0] == outputs.shape[0]`
 
-For more detailed usage instructions and API documentation, please refer to the [full documentation](https://github.com/mixedbread-ai/baguetter/docs).
+```python
+from batch import inference
+
+@inference.dynamically(pad_token={"input_ids": 0})
+def my_inference_function(features: ModelFeatures) -> ModelOutputs:
+   # input_ids = features["input_ids"]
+   # attention_mask = features["attention_mask"]
+   # token_type_ids = features["token_type_ids"]
+
+   logits = model(**features)
+   return logits
+
+my_inference_function(data)
+
+# asyncio to thread
+await my_inference_function.acall(data)
+
+print(my_inference_function.stats)
+```
+
+#### Asyncio Implementation
+
+- `@batch.aio.dynamically`: Allows dynamic batching for general tasks using `asyncio` (Both sync and async supported).
+- The decorated method should:
+  - Take in a list of items (`list[T]`)
+  - Return a list of results (`list[U]`) of the same length.
+
+```python
+from batch import aio
+
+@aio.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
+await def my_function(items: list[T]) -> list[U]:
+   # Custom processing logic here
+   return [item * 2 for item in items]
+
+# Allow single item
+await my_function(2)
+
+# Allow batch of items
+await my_function([2, 3, 4])
+
+
+# Support stat checking
+print(my_function.stats)
+```
+
+- `@batch.aio.inference.dynamically`: Allows dynamic batching for inference tasks, handling numpy arrays and tensors with padding, using `asyncio`.
+- The decorated method should:
+  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). Each tensor or numpy array is a value batch of a single feature, and the keys are the feature names.
+  - Return a tensor or numpy array (`Feature`). Each row is a single inference result.
+  - `features[feature_name].shape[0] == outputs.shape[0]`
+
+```python
+from batch import aio
+
+@aio.inference.dynamically(pad_token={"input_ids": 0})
+def my_inference_function(features: ModelFeatures) -> ModelOutputs:
+   # input_ids = features["input_ids"]
+   # attention_mask = features["attention_mask"]
+   # token_type_ids = features["token_type_ids"]
+
+   logits = model(**features)
+   return logits
+
+await my_inference_function(data)
+
+print(my_inference_function.stats)
+```
 
 ## Contributing
 
-Contributions are welcome! We are using the GitHub Pull Request workflow. Either open an issue first and create a PR or include a comprehensive commit message when opening a PR.
+Contributions are welcome! Please feel free to submit a pull request or report an issue on GitHub.
 
-To get started, please create a clone of the repo (or a fork). We recommend working in a virtual environment.
+## Attribution
 
-```sh
-python -m pip install -e ".[dev]"
+This project was inspired by the following projects:
 
-pre-commit install
-```
-
-To test your changes, run:
-
-```sh
-pytest
-```
+- [Infinity](https://github.com/michaelfeil/infinity) by Michael Feil
 
 ## License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgements
-
-Baguetter builds upon the work of several open-source projects:
-
-1. [retriv](https://github.com/AmenRa/retriv) by [AmenRa](https://github.com/AmenRa):
-   Baguetter is a fork of retriv, adjusting it to our needs.
-
-2. [bm25s](https://github.com/xhluca/bm25s) by [xhluca](https://github.com/xhluca):
-   Our BM25 implementation is based on this project, which provides an efficient and effective implementation of the BM25 algorithm with different scoring functions.
-
-3. [USearch](https://github.com/unum-cloud/usearch) by [unum-cloud](https://github.com/unum-cloud) for dense retrival.
-
-4. [ranx](https://github.com/AmenRa/ranx) by [AmenRa](https://github.com/AmenRa) for evaluation.
-
-Please check out the respective repositories and show some appreciation to the authors.
-
-## Citing
-
-```
-@article{li2024bmx,
-      title={BMX: Entropy-weighted Similarity and Semantic-enhanced Lexical Search},
-      author={Xianming Li and Julius Lipp and Aamir Shakir and Rui Huang and Jing Li},
-      year={2024},
-      eprint={2408.06643},
-      archivePrefix={arXiv},
-      primaryClass={cs.IR},
-      url={https://arxiv.org/abs/2408.06643},
-}
-```
-# batch
+This project is licensed under the Apache License, Version 2.0.

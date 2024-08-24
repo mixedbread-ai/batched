@@ -1,5 +1,4 @@
-from .batch_processor import BatchProcessor, BatchProcessorConfig, dynamic_batching
+from . import aio, inference, types, utils
+from .batch_processor import BatchProcessor, dynamically
 
-dynamically = dynamic_batching
-
-__all__ = ["dynamically", "BatchProcessor", "dynamic_batching", "BatchProcessorConfig"]
+__all__ = ["dynamically", "BatchProcessor", "aio", "utils", "types", "inference"]

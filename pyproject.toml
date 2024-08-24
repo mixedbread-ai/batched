@@ -2,12 +2,8 @@
 name = "batch"
 version = "0.1.0"
 description = "Batch is a flexible and efficient batch processing library implemented in Python. It supports asynchronous batch processing with dynamic batching and prioritization."
-authors = [
-    { name = "Mixedbread", email = "support@mixedbread.ai" },
-]
-dependencies = [
-    "numpy>=1.26.4",
-]
+authors = [{ name = "Mixedbread", email = "support@mixedbread.ai" }]
+dependencies = []
 requires-python = ">=3.9"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -23,6 +19,7 @@ dev = [
     "ruff>=0.2.0",
     "pre-commit>=3.6.0",
     "torch>=2.0.0",
+    "numpy>=1.26.4",
 ]
 
 [tool.setuptools.packages.find]

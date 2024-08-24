@@ -1,7 +1,9 @@
 
-# Batch
+# Batch (Dynamic Batching)
 
-The Batch API provides a flexible and efficient way to process multiple requests in a batch. It is designed to optimize throughput while maintaining a low-latency experience, especially useful in scenarios where you need to handle a high volume of requests simultaneously.
+The Batch API provides a flexible and efficient way to process multiple requests in a batch, with a primary focus on dynamic batching of inference workloads. It is designed to optimize throughput while maintaining a low-latency experience, especially useful in scenarios where you need to handle a high volume of requests simultaneously. It is designed for both async and sync execution.
+
+![Batch Performance](/examples/inference_speed.png)
 
 ## Table of Contents
 
@@ -13,9 +15,17 @@ The Batch API provides a flexible and efficient way to process multiple requests
 - [Contributing](#contributing)
 - [License](#license)
 
+## Why Dynamic Batching?
+
+Dynamic batching is a technique that automatically groups multiple incoming inference requests into a single batch for processing. This is particularly beneficial for inference workloads, where processing multiple inputs together can significantly improve throughput and efficiency.
+
+In machine learning models, dynamic batching matters because it optimizes hardware utilization, especially for GPUs and specialized AI hardware designed for parallel processing. By batching requests, we can fully leverage this parallel processing, leading to higher throughput. It also reduces overhead by amortizing fixed costs (such as data transfer and model initialization) across multiple requests, improving overall efficiency. Furthermore, dynamic batching enhances real-time performance by adapting to varying request rates, maintaining low latency during quiet periods while maximizing throughput during busy times.
+
+This makes dynamic batching a crucial technique for deploying ML models in production environments where request patterns can be unpredictable and resource optimization is key.
+
 ## Installation
 
-To install the Batch API, you can use pip:
+To install the Batch, you can use pip:
 
 ```bash
 pip install batch
@@ -33,10 +43,10 @@ Below is a basic example of how to use the Batch API to process text data in bat
 +  import batch
 
    class SentenceEmbedder:
-      def __init__(self, model_name='all-MiniLM-L6-v2'):
+      def __init__(self, model_name='mixedbread-ai/mxbai-embed-large-v1'):
          self.model = SentenceTransformer(model_name)
 
-+     @batch.dynamically(batch_size=32, timeout_ms=50.0)
++     @batch.dynamically
       def embed_sentences(self, sentences: list[str]) -> list[np.ndarray]:
          # Convert sentences to embeddings
          embeddings = self.model.encode(sentences)
@@ -63,7 +73,7 @@ Below is a basic example of how to use the Batch API to process text data in bat
 
 For more advanced usage, such as customizing batch size and timeout dynamically, the Batch API provides decorators that allow fine-grained control over the batching process.
 
-- **Batch Size**: You can specify the number of requests to group together in a single batch.
+- **Batch Size**: You can specify the max. number of requests to group together in a single batch.
 - **Timeout**: The maximum time to wait for more requests before processing the batch.
 - **Small Batch Threshold**: The threshold to give more priority to smaller batches.
 - **Pad Token**: The token to use for padding when batching tensors, only for `@inference.dynamically`.
@@ -71,7 +81,7 @@ For more advanced usage, such as customizing batch size and timeout dynamically,
 For example:
 
 ```python
-@batch.dynamically(batch_size=50, timeout_ms=5.0)
+@batch.dynamically(batch_size=64, timeout_ms=5.0, small_batch_threshold=2)
 def custom_batch_function(data):
     # Custom processing logic here
     pass
@@ -87,7 +97,6 @@ The API offers both thread and asyncio implementations for batching general task
 - The decorated method should:
   - Take in a list of items (`list[T]`)
   - Return a list of results (`list[U]`) of the same length.
-
 
 ```python
 import batch
@@ -138,11 +147,10 @@ print(my_inference_function.stats)
 
 #### Asyncio Implementation
 
-- `@batch.aio.dynamically`: Allows dynamic batching for general tasks using `asyncio`.
+- `@batch.aio.dynamically`: Allows dynamic batching for general tasks using `asyncio` (Both sync and async supported).
 - The decorated method should:
   - Take in a list of items (`list[T]`)
   - Return a list of results (`list[U]`) of the same length.
-
 
 ```python
 from batch import aio
@@ -190,6 +198,12 @@ print(my_inference_function.stats)
 
 Contributions are welcome! Please feel free to submit a pull request or report an issue on GitHub.
 
+## Attribution
+
+This project was inspired by the following projects:
+
+- [Infinity](https://github.com/michaelfeil/infinity) by Michael Feil
+
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the Apache License, Version 2.0.

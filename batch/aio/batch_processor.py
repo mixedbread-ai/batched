@@ -103,6 +103,7 @@ class AsyncBatchProcessor(Generic[T, U]):
 
                 for item, output in zip(batch, batch_outputs):
                     item.set_result(output)
+
             except Exception as e:  # noqa: BLE001
                 for item in batch:
                     item.set_exception(e)
@@ -141,6 +142,9 @@ class AsyncBatchProcessor(Generic[T, U]):
         return (await self._schedule([items]))[0]
 
     def __del__(self):
+        if self._task is None or not self._loop.is_running():
+            return
+
         self._task.cancel()
 
 

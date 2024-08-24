@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 import time
 from batch.batch_processor import BatchProcessor, dynamically
@@ -112,4 +114,50 @@ def test_batch_processor_concurrent_calls():
     assert results == [2] * 10
     assert processor.stats.total_batches == 2
     assert processor.stats.total_processed == 10
+
+
+    @pytest.mark.asyncio
+    async def test_batch_processor_acall():
+        def batch_multiply(items):
+            return [item * 2 for item in items]
+
+        processor = BatchProcessor(batch_multiply, batch_size=3, timeout_ms=10.0)
+
+        results = await asyncio.gather(*[processor.acall(i) for i in range(5)])
+        assert results == [0, 2, 4, 6, 8]
+
+    @pytest.mark.asyncio
+    async def test_batch_processor_acall_multiple():
+        def batch_multiply(items):
+            return [item * 2 for item in items]
+
+        processor = BatchProcessor(batch_multiply, batch_size=3, timeout_ms=10.0)
+
+        results = await processor.acall([1, 2, 3, 4, 5])
+        assert results == [2, 4, 6, 8, 10]
+
+    @pytest.mark.asyncio
+    async def test_batch_processor_acall_exception_handling():
+        def faulty_batch_func(items):
+            raise ValueError("Test error")
+
+        processor = BatchProcessor(faulty_batch_func)
+
+        with pytest.raises(ValueError, match="Test error"):
+            await processor.acall(5)
+
+    @pytest.mark.asyncio
+    async def test_batch_processor_acall_concurrent():
+        def slow_batch_func(items):
+            time.sleep(0.1)
+            return [item * 2 for item in items]
+
+        processor = BatchProcessor(slow_batch_func, batch_size=5, timeout_ms=50.0)
+
+        results = await asyncio.gather(*[processor.acall(i) for i in range(10)])
+
+        assert results == [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+        assert processor.stats.total_batches == 2
+        assert processor.stats.total_processed == 10
+
 

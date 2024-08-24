@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 import time
 import numpy as np
@@ -123,3 +125,50 @@ def test_batch_processor_with_pad_tokens():
     
     np.testing.assert_array_equal(result1, np.array([6]))
     np.testing.assert_array_equal(result2, np.array([9]))  # [4, 5, 0] due to padding
+
+@pytest.mark.asyncio
+async def test_batch_processor_acall():
+    def batch_multiply(features: dict[str, Feature]) -> Feature:
+        return features["input"] * 2
+
+    processor = ModelBatchProcessor(batch_multiply, batch_size=3, timeout_ms=10.0)
+
+    results = await asyncio.gather(*[processor.acall(input=np.array([[i]])) for i in range(5)])
+    
+    for i, result in enumerate(results):
+        np.testing.assert_array_equal(result, np.array([[i * 2]]))
+
+@pytest.mark.asyncio
+async def test_batch_processor_acall_multiple():
+    def batch_multiply(features: dict[str, Feature]) -> Feature:
+        return features["input"] * 2
+
+    processor = ModelBatchProcessor(batch_multiply, batch_size=3, timeout_ms=10.0)
+
+    result = await processor.acall(input=np.array([[1], [2], [3], [4], [5]]))
+    np.testing.assert_array_equal(result, np.array([[2], [4], [6], [8], [10]]))
+
+@pytest.mark.asyncio
+async def test_batch_processor_acall_exception_handling():
+    def faulty_batch_func(features: dict[str, Feature]) -> Feature:
+        raise ValueError("Test error")
+
+    processor = ModelBatchProcessor(faulty_batch_func)
+
+    with pytest.raises(ValueError, match="Test error"):
+        await processor.acall(input=np.array([[1]]))
+
+@pytest.mark.asyncio
+async def test_batch_processor_acall_concurrent():
+    def slow_batch_func(features: dict[str, Feature]) -> Feature:
+        time.sleep(0.1)
+        return features["input"] * 2
+
+    processor = ModelBatchProcessor(slow_batch_func, batch_size=5, timeout_ms=50.0)
+
+    results = await asyncio.gather(*[processor.acall(input=np.array([[i]])) for i in range(10)])
+
+    for i, result in enumerate(results):
+        np.testing.assert_array_equal(result, np.array([[i * 2]]))
+    assert processor.stats.total_batches == 2
+    assert processor.stats.total_processed == 10

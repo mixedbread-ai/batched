@@ -7,14 +7,15 @@ on:
       working-directory:
         required: true
         type: string
-        description: "From which folder this pipeline executes"
+        description: "Folder from which this pipeline executes"
+        default: "."
   workflow_dispatch:
     inputs:
       working-directory:
         required: true
         type: string
-        description: "From which folder this pipeline executes"
-        default: "baguetter"
+        description: "Folder from which this pipeline executes"
+        default: "."
 
 env:
   UV_VERSION: "0.1.0"
@@ -22,12 +23,12 @@ env:
 
 jobs:
   lint:
-    uses: ./.github/workflows/_lint.yml
+    uses: ./.github/workflows/lint.yml
     with:
       working-directory: ${{ inputs.working-directory }}
 
   test:
-    uses: ./.github/workflows/_test.yml
+    uses: ./.github/workflows/test.yml
     with:
       working-directory: ${{ inputs.working-directory }}
 
@@ -35,14 +36,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs: [lint, test]
-
     outputs:
       pkg-name: ${{ steps.check-version.outputs.pkg-name }}
       version: ${{ steps.check-version.outputs.version }}
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python and uv
         uses: "./.github/actions/uv_setup"
         with:
@@ -50,17 +48,14 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           working-directory: ${{ inputs.working-directory }}
           cache-key: release
-
       - name: Build project for distribution
-        run: uv pip build
+        run: uvx --from build pyproject-build --installer uv
         working-directory: ${{ inputs.working-directory }}
-
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: ${{ inputs.working-directory }}/dist/
-
       - name: Check Version
         id: check-version
         shell: bash
@@ -69,26 +64,40 @@ jobs:
           echo pkg-name="$(grep -m1 'name =' pyproject.toml | cut -d '"' -f2)" >> $GITHUB_OUTPUT
           echo version="$(grep -m1 'version =' pyproject.toml | cut -d '"' -f2)" >> $GITHUB_OUTPUT
 
-  test-pypi-publish:
-    needs: [build]
-    uses: ./.github/workflows/_test_release.yml
-    with:
-      working-directory: ${{ inputs.working-directory }}
-    secrets: inherit
+  # test-pypi-publish:
+  #   needs: [build]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up Python and uv
+  #       uses: "./.github/actions/uv_setup"
+  #       with:
+  #         python-version: ${{ env.PYTHON_VERSION }}
+  #         uv-version: ${{ env.UV_VERSION }}
+  #         working-directory: ${{ inputs.working-directory }}
+  #         cache-key: release
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         name: dist
+  #         path: ${{ inputs.working-directory }}/dist/
+  #     - name: Publish to TestPyPI
+  #       env:
+  #         TWINE_USERNAME: __token__
+  #         TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
+  #       run: uvx twine upload --repository testpypi ${{ inputs.working-directory }}/dist/* --use
+  #       working-directory: ${{ inputs.working-directory }}
 
   pre-release-checks:
-    needs: [build, test-pypi-publish]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python and uv
         uses: "./.github/actions/uv_setup"
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           uv-version: ${{ env.UV_VERSION }}
           working-directory: ${{ inputs.working-directory }}
-
       - name: Import published package
         shell: bash
         working-directory: ${{ inputs.working-directory }}
@@ -105,14 +114,11 @@ jobs:
               --extra-index-url https://test.pypi.org/simple/ \
               "$PKG_NAME==$VERSION" \
           )
-
           IMPORT_NAME="$(echo "$PKG_NAME" | sed s/-/_/g)"
           python -c "import $IMPORT_NAME; print(dir($IMPORT_NAME))"
-
       - name: Install test dependencies
         run: make dev-install
         working-directory: ${{ inputs.working-directory }}
-
       - name: Import published package (again)
         working-directory: ${{ inputs.working-directory }}
         shell: bash
@@ -123,20 +129,15 @@ jobs:
           uv pip install \
             --extra-index-url https://test.pypi.org/simple/ \
             "$PKG_NAME==$VERSION"
-
       - name: Run tests
         run: make test
         working-directory: ${{ inputs.working-directory }}
 
   publish:
-    needs: [build, test-pypi-publish, pre-release-checks]
+    needs: [build, pre-release-checks]
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python and uv
         uses: "./.github/actions/uv_setup"
         with:
@@ -144,41 +145,28 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           working-directory: ${{ inputs.working-directory }}
           cache-key: release
-
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: ${{ inputs.working-directory }}/dist/
-
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: ${{ inputs.working-directory }}/dist/
-          verbose: true
-          print-hash: true
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: uvx twine upload ${{ inputs.working-directory }}/dist/*
+        working-directory: ${{ inputs.working-directory }}
 
   mark-release:
-    needs: [build, test-pypi-publish, pre-release-checks, publish]
+    needs: [build, pre-release-checks, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python and uv
-        uses: "./.github/actions/uv_setup"
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          uv-version: ${{ env.UV_VERSION }}
-          working-directory: ${{ inputs.working-directory }}
-          cache-key: release
-
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: ${{ inputs.working-directory }}/dist/
-
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:

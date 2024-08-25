@@ -1,12 +1,20 @@
 name: pytest
 
-on: [push]
+on:
+  push:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: false
+        type: string
+        description: "Folder from which this pipeline executes"
+        default: "."
 
 env:
   UV_VERSION: "0.1.0"
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -18,9 +26,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
-          working-directory: "."
+          working-directory: ${{ inputs.working-directory }}
           cache-key: test
-      - name: Install dependencies and run tests
-        run: |
-          make dev-install
-          make test
+      - name: Install dependencies
+        run: make dev-install
+        working-directory: ${{ inputs.working-directory }}
+      - name: Run tests
+        run: make test
+        working-directory: ${{ inputs.working-directory }}

@@ -110,19 +110,29 @@ def dynamically(
     pad_tokens: Optional[dict[str, int]] = None,
 ) -> Callable:
     """
-    A decorator to create a BatchProcessor for the given function.
+    Dynamically batch numpy arrays or PyTorch Tensors for inference tasks using asyncio.
 
-    This decorator can be used with or without arguments.
+    This decorator is designed for inference functions that can process batches of data asynchronously.
+    The decorated function should accept a dictionary of input arrays/tensors and return a dictionary
+    of output arrays/tensors of the same length. The function should be a coroutine or be convertible to one.
 
     Args:
-        func (BatchInfer | None): The function to be wrapped. If None, returns a decorator.
-        batch_size (int): The maximum size of each batch. Defaults to 32.
-        timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
-        small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
-        pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+        func (BatchInfer | None): The inference function to be wrapped. If None, returns a decorator.
+        batch_size (int): The maximum number of samples in each batch. Defaults to 32.
+        timeout_ms (float): The maximum wait time in milliseconds for batch formation. Defaults to 5.0.
+        small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
+        pad_tokens (dict[str, int] | None): Padding token values for each input feature. Defaults to None.
 
     Returns:
-        Callable: A decorator that creates a BatchProcessor for the given function.
+        Callable: A decorator that creates an AsyncModelBatchProcessor for efficient batched inference.
+
+    Example:
+        @aio.inference.dynamically(pad_tokens={'input_ids': 0})
+        async def infer_batch(inputs: dict[str, np.ndarray]) -> np.ndarray:
+            # Perform inference on the batch
+            return model(inputs['input'])
+
+        results = await infer_batch(multiple_samples)
     """
 
     def make_processor(_func: BatchInfer) -> AsyncModelBatchProcessor:

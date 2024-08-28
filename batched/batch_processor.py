@@ -213,16 +213,42 @@ def dynamically(
     small_batch_threshold: int = 8,
 ) -> Callable:
     """
-    A decorator for creating a BatchProcessor with dynamic batching.
+    Dynamically batch inputs for processing in a thread.
+
+    This decorator is designed for functions that can process batches of data without using asyncio.
+    The decorated function should accept a list of input items and return a list of output items
+    of the same length. The function should not be awaitable.
 
     Args:
         func (BatchFunc | None): The function to be wrapped. If None, returns a partial function.
         batch_size (int): The maximum size of each batch. Defaults to 32.
         timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
-        small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
+        small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
 
     Returns:
         Callable: A decorator that creates a BatchProcessor for the given function.
+
+    Example:
+        @dynamically(batch_size=64, timeout_ms=10.0)
+        def process_items(items: list[str]) -> list[int]:
+            return [len(item) for item in items]
+
+        # Single item processing
+        single_result = process_items("hello")
+        # Returns: 5
+
+        # Batch processing
+        batch_result = process_items(["hello", "world", "python"])
+        # Returns: [5, 5, 6]
+
+        # Asynchronous processing
+        import asyncio
+
+        async def main():
+            single_result_async = await process_items.acall("hello")
+            batch_result_async = await process_items.acall(["hello", "world", "python"])
+
+        asyncio.run(main())
     """
 
     def make_processor(_func: BatchFunc) -> BatchProcessor:

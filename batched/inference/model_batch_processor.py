@@ -142,19 +142,42 @@ def dynamically(
     pad_tokens: Optional[dict[str, int]] = None,
 ) -> Callable:
     """
-    A decorator to create a BatchProcessor for the given function.
+    Dynamically batch numpy arrays or PyTorch Tensors for inference in a thread.
 
-    This decorator can be used with or without arguments.
+    This decorator is designed for inference functions without using asyncio.
+    The decorated function should accept a dictionary of input arrays/tensors and
+    return a dictionary of output arrays/tensors of the same length. The function should not be awaitable.
 
     Args:
         func (BatchInfer | None): The function to be wrapped. If None, returns a decorator.
         batch_size (int): The maximum size of each batch. Defaults to 32.
         timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
-        small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
+        small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
         pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
 
     Returns:
         Callable: A decorator that creates a BatchProcessor for the given function.
+
+    Example:
+        @inference.dynamically(pad_tokens={'input1': 0})
+        def process_batch(inputs: dict[str, np.ndarray]) -> np.ndarray:
+            # Process the batch of inputs
+            return inputs['input1'] * 2 + inputs['input2']
+
+        @inference.dynmically
+        def process_batch_list(inputs: dict[str, np.ndarray]) -> list[np.ndarray]:
+            return [inputs['input1'] * 2, inputs['input2'] * 3]
+
+        # Synchronous processing
+        result = process_batch(data)
+
+        # Asynchronous processing
+        import asyncio
+
+        async def main():
+            await process_batch_list.acall(data)
+
+        asyncio.run(main())
     """
 
     def make_processor(_func: BatchInfer) -> ModelBatchProcessor:

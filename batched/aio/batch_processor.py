@@ -156,7 +156,13 @@ def dynamically(
     small_batch_threshold: int = 8,
 ) -> Callable:
     """
-    A decorator for creating a BatchProcessor with dynamic batching.
+    Dynamically batch inputs for processing using asyncio.
+    
+    This decorator is designed for functions that can process batches of data in an asyncio-based environment.
+    It is suitable for cases such as FastAPI handlers. 
+    
+    The decorated function can be co-routines or not. It should accept a list of input items and return 
+    a list of output items of the same length. The returned function is a coroutine.
 
     Args:
         func (BatchFunc[T, U] | None): The function to be wrapped. If None, returns a partial function.
@@ -165,7 +171,29 @@ def dynamically(
         small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
 
     Returns:
-        Callable: A decorator that creates a BatchProcessor for the given function.
+        Callable: A decorator that creates an AsyncBatchProcessor for the given function.
+
+    Example:
+        @aio.dynamically(batch_size=64, timeout_ms=10.0)
+        async def process_items(items: list[str]) -> list[int]:
+            return [len(item) for item in items]
+
+        # Single item processing
+        result = await process_items("hello")
+        # Returns: 5
+
+        # Batch processing
+        batch_result = await process_items(["hello", "world", "python"])
+        # Returns: [5, 5, 6]
+
+        # The decorator also works with non-awaitable functions
+        @aio.dynamically(batch_size=32)
+        def sync_process(items: list[str]) -> list[int]:
+            return [len(item) * 2 for item in items]
+
+        # The decorated function is still awaitable
+        sync_result = await sync_process(["a", "bc", "def"])
+        # Returns: [2, 4, 6]
     """
 
     def make_processor(_func: BatchFunc[T, U]) -> AsyncBatchProcessor[T, U]:

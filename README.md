@@ -25,7 +25,7 @@ This makes dynamic batching a crucial technique for deploying ML models in produ
 
 ## Installation
 
-To install the Batch, you can use pip:
+To install the Batched, you can use pip:
 
 ```bash
 pip install batched
@@ -49,8 +49,7 @@ Below is a basic example of how to use the Batched API to process text data in b
 +     @batched.dynamically
       def embed_sentences(self, sentences: list[str]) -> list[np.ndarray]:
          # Convert sentences to embeddings
-         embeddings = self.model.encode(sentences)
-         return [embedding for embedding in embeddings]
+         return self.model.encode(sentences)
 
    # Create an instance of SentenceEmbedder
    embedder = SentenceEmbedder()
@@ -76,7 +75,7 @@ For more advanced usage, such as customizing batch size and timeout dynamically,
 - **Batch Size**: You can specify the max. number of requests to group together in a single batch.
 - **Timeout**: The maximum time to wait for more requests before processing the batch.
 - **Small Batch Threshold**: The threshold to give more priority to smaller batches.
-- **Pad Token**: The token to use for padding when batching tensors, only for `@inference.dynamically`.
+- **Pad Token**: The token to use for padding when batching tensors, only for `@inference.dynamically` and `@aio.inference.dynamically`.
 
 For example:
 
@@ -93,7 +92,7 @@ The API offers both thread and asyncio implementations for batching general task
 
 #### Thread Implementation
 
-- `@batched.dynamically`: Allows dynamic batching for general tasks.
+- `@batched.dynamically`: Allows dynamic batching for general tasks (Both sync and async supported).
 - The decorated method should:
   - Take in a list of items (`list[T]`)
   - Return a list of results (`list[U]`) of the same length.
@@ -102,19 +101,19 @@ The API offers both thread and asyncio implementations for batching general task
 import batched
 
 
-@batched.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
-def my_function(items: list[T]) -> list[U]:
+@batched.dynamically(batch_size=64)
+def my_function(items: list[int]) -> list[str]:
   # Custom processing logic here
-  return [item * 2 for item in items]
+  return [f"{item * 2}" for item in items]
 
-
-# Allow single item
+# Sync call with single item
 my_function(2)
 
-# Allow batch of items
+# Sync call with a batch of items
 my_function([2, 3, 4])
 
-# thread to Asyncio
+# Call with asyncio
+await my_function.acall(2)
 await my_function.acall([2, 3, 4])
 
 # Support stat checking
@@ -123,16 +122,17 @@ print(my_function.stats)
 
 - `@batched.inference.dynamically`: Allows dynamic batching for inference tasks, handling numpy arrays and tensors with padding.
 - The decorated method should:
-  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). Each tensor or numpy array is a value batch of a single feature, and the keys are the feature names.
+  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). `Feature` is a batch of item values for a single feature, and the keys are the feature names.
   - Return a tensor or numpy array (`Feature`). Each row is a single inference result.
+  - `Feature` can be any of the following types: `np.ndarray`, `torch.Tensor`, `list[np.ndarray]` and `list[torch.Tensor]`.
   - `features[feature_name].shape[0] == outputs.shape[0]`
 
 ```python
 from batched import inference
-
+import torch
 
 @inference.dynamically(pad_token={"input_ids": 0})
-def my_inference_function(features: ModelFeatures) -> ModelOutputs:
+def my_inference_function(features: dict[str, torch.Tensor]) -> torch.Tensor:
   # input_ids = features["input_ids"]
   # attention_mask = features["attention_mask"]
   # token_type_ids = features["token_type_ids"]
@@ -140,10 +140,10 @@ def my_inference_function(features: ModelFeatures) -> ModelOutputs:
   logits = model(**features)
   return logits
 
-
+# Sync call
 my_inference_function(data)
 
-# asyncio to thread
+# Call with asyncio
 await my_inference_function.acall(data)
 
 print(my_inference_function.stats)
@@ -151,7 +151,7 @@ print(my_inference_function.stats)
 
 #### Asyncio Implementation
 
-- `@batched.aio.dynamically`: Allows dynamic batching for general tasks using `asyncio` (Both sync and async supported).
+- `@batched.aio.dynamically`: Allows dynamic batching for general tasks using `asyncio`.
 - The decorated method should:
   - Take in a list of items (`list[T]`)
   - Return a list of results (`list[U]`) of the same length.
@@ -159,9 +159,8 @@ print(my_inference_function.stats)
 ```python
 from batched import aio
 
-
 @aio.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
-def my_function(items: list[T]) -> list[U]:
+async def my_function(items: list[int]) -> list[int]:
   # Custom processing logic here
   return [item * 2 for item in items]
 
@@ -178,22 +177,24 @@ print(my_function.stats)
 
 - `@batched.aio.inference.dynamically`: Allows dynamic batching for inference tasks, handling numpy arrays and tensors with padding, using `asyncio`.
 - The decorated method should:
-  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). Each tensor or numpy array is a value batch of a single feature, and the keys are the feature names.
+  - Take in a dictionary of tensors or numpy arrays (`dict[str, Feature]`). `Feature` is a batch of item values for a single feature, and the keys are the feature names.
   - Return a tensor or numpy array (`Feature`). Each row is a single inference result.
+  - `Feature` can be any of the following types: `np.ndarray`, `torch.Tensor`, `list[np.ndarray]` and `list[torch.Tensor]`.
   - `features[feature_name].shape[0] == outputs.shape[0]`
 
 ```python
 from batched import aio
-
+import torch
 
 @aio.inference.dynamically(pad_token={"input_ids": 0})
-def my_inference_function(features: ModelFeatures) -> ModelOutputs:
+async def my_inference_function(features: dict[str, torch.Tensor]) -> list[torch.Tensor]:
   # input_ids = features["input_ids"]
   # attention_mask = features["attention_mask"]
   # token_type_ids = features["token_type_ids"]
 
-  logits = model(**features)
-  return logits
+  logits1 = model1(**features)
+  logits2 = model2(**features)
+  return [logits1, logits2]
 
 
 await my_inference_function(data)

@@ -41,7 +41,7 @@ class AsyncBatchProcessor(Generic[T, U]):
             _func (BatchFunc[T, U]): The function to process batches.
             batch_size (int): The maximum size of each batch. Defaults to 32.
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
-            small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
+            small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
         """
         self.small_batch_threshold = small_batch_threshold
         self.batch_func = utils.ensure_async(_func)

@@ -152,7 +152,7 @@ def dynamically(
         func (BatchInfer | None): The function to be wrapped. If None, returns a decorator.
         batch_size (int): The maximum size of each batch. Defaults to 32.
         timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
-        small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
+        small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
         pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
 
     Returns:

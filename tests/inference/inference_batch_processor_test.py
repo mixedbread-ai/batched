@@ -4,8 +4,8 @@ import pytest
 import time
 import numpy as np
 import torch
-from batch.inference.model_batch_processor import ModelBatchProcessor, dynamically
-from batch.types import BatchProcessorStats, Feature
+from batched.inference.model_batch_processor import ModelBatchProcessor, dynamically
+from batched.types import BatchProcessorStats, Feature
 
 
 def test_batch_processor_initialization():

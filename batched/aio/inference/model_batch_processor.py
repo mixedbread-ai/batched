@@ -3,15 +3,15 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, overload
 
-from batch.aio.batch_processor import AsyncBatchProcessor
-from batch.decorator import _dynamic_batch
-from batch.inference.helper import (
+from batched.aio.batch_processor import AsyncBatchProcessor
+from batched.decorator import _dynamic_batch
+from batched.inference.helper import (
     stack_features,
     stack_outputs,
     unstack_features,
     unstack_outputs,
 )
-from batch.types import BatchInfer, Feature
+from batched.types import BatchInfer, Feature
 
 if TYPE_CHECKING:
     from collections.abc import Callable

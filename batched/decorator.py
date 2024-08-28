@@ -3,13 +3,13 @@ from __future__ import annotations
 from functools import partial, wraps
 from typing import TYPE_CHECKING
 
-from batch.utils import is_method
+from batched.utils import is_method
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Optional
 
-    from batch.types import BatchFunc
+    from batched.types import BatchFunc
 
 
 def _dynamic_batch(

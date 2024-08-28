@@ -1,8 +1,8 @@
 import asyncio
 import pytest
 import numpy as np
-from batch.aio.inference.model_batch_processor import AsyncModelBatchProcessor, dynamically
-from batch.types import Feature
+from batched.aio.inference.model_batch_processor import AsyncModelBatchProcessor, dynamically
+from batched.types import Feature
 
 @pytest.mark.asyncio
 async def test_async_model_batch_processor_initialization():

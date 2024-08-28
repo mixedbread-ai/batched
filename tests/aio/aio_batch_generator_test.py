@@ -1,6 +1,6 @@
 import asyncio
 import pytest
-from batch.aio.batch_generator import AsyncBatchGenerator, AsyncBatchItem
+from batched.aio.batch_generator import AsyncBatchGenerator, AsyncBatchItem
 
 
 @pytest.mark.asyncio

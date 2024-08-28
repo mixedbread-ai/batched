@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 import time
-from batch.batch_processor import BatchProcessor, dynamically
-from batch.types import BatchProcessorStats
+from batched.batch_processor import BatchProcessor, dynamically
+from batched.types import BatchProcessorStats
 
 def test_batch_processor_initialization():
     def dummy_batch_func(items):

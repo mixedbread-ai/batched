@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from batch.utils import first
+from batched.utils import first
 
 try:
     import torch
@@ -15,7 +15,7 @@ except ImportError:
     np = None
 
 if TYPE_CHECKING:
-    from batch.types import Feature
+    from batched.types import Feature
 
 
 def _is_np(item: Any) -> bool:

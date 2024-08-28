@@ -1,6 +1,6 @@
 import pytest
 import time
-from batch.batch_generator import BatchGenerator, BatchItem
+from batched.batch_generator import BatchGenerator, BatchItem
 
 def test_batch_generator_initialization():
     generator = BatchGenerator(batch_size=32, timeout_ms=5.0)

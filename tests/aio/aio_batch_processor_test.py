@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from batch.aio.batch_processor import AsyncBatchProcessor, dynamically
+from batched.aio.batch_processor import AsyncBatchProcessor, dynamically
 
 
 @pytest.mark.asyncio

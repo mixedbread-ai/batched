@@ -250,6 +250,8 @@ def dynamically(
 
         asyncio.run(main())
     """
+
     def make_processor(_func: BatchFunc) -> BatchProcessor:
         return BatchProcessor(_func, batch_size, timeout_ms, small_batch_threshold)
+
     return _dynamic_batch(make_processor, func)

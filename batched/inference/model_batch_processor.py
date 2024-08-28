@@ -144,8 +144,8 @@ def dynamically(
     """
     Dynamically batch numpy arrays or PyTorch Tensors for inference in a thread.
 
-    This decorator is designed for inference functions without using asyncio. 
-    The decorated function should accept a dictionary of input arrays/tensors and 
+    This decorator is designed for inference functions without using asyncio.
+    The decorated function should accept a dictionary of input arrays/tensors and
     return a dictionary of output arrays/tensors of the same length. The function should not be awaitable.
 
     Args:

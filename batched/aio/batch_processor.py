@@ -157,11 +157,11 @@ def dynamically(
 ) -> Callable:
     """
     Dynamically batch inputs for processing using asyncio.
-    
+
     This decorator is designed for functions that can process batches of data in an asyncio-based environment.
-    It is suitable for cases such as FastAPI handlers. 
-    
-    The decorated function can be co-routines or not. It should accept a list of input items and return 
+    It is suitable for cases such as FastAPI handlers.
+
+    The decorated function can be co-routines or not. It should accept a list of input items and return
     a list of output items of the same length. The returned function is a coroutine.
 
     Args:

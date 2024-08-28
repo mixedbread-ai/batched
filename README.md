@@ -160,7 +160,7 @@ print(my_inference_function.stats)
 from batched import aio
 
 @aio.dynamically(batch_size=64, timeout_ms=20.0, small_batch_threshold=10)
-async def my_function(items: list[int]) -> list[int]:
+def my_function(items: list[int]) -> list[int]:  # can also be an async function: async def ...
   # Custom processing logic here
   return [item * 2 for item in items]
 
@@ -192,8 +192,8 @@ async def my_inference_function(features: dict[str, torch.Tensor]) -> list[torch
   # attention_mask = features["attention_mask"]
   # token_type_ids = features["token_type_ids"]
 
-  logits1 = model1(**features)
-  logits2 = model2(**features)
+  logits1 = await model1(**features)
+  logits2 = await model2(**features)
   return [logits1, logits2]
 
 

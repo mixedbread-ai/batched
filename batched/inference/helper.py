@@ -124,8 +124,9 @@ def unstack_outputs(outputs: Feature) -> list[Feature]:
     Returns:
         list[ModelOutputs]: List of individual model outputs.
     """
-    n_items = len(first(outputs)) if isinstance(outputs, list) else len(outputs)
-
+    if isinstance(outputs, dict):
+        n_items = len(first(outputs.values()))
+        return [{key: value[i] for key, value in outputs.items()} for i in range(n_items)]
     if isinstance(outputs, list):
-        return [[output[i] for output in outputs] for i in range(n_items)]
-    return [outputs[i] for i in range(n_items)]
+        return list(map(list, zip(*outputs)))
+    return [outputs[i] for i in range(len(outputs))]

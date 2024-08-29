@@ -9,7 +9,7 @@ from batched.types import T, U
 from batched.utils import batch_iter
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import AsyncGenerator
 
 
 @dataclass(order=True)
@@ -108,7 +108,7 @@ class AsyncBatchGenerator(Generic[T, U]):
         for item in items:
             await self._queue.put(item)
 
-    async def optimal_batches(self) -> Generator[list[AsyncBatchItem[T, U]], None, None]:
+    async def optimal_batches(self) -> AsyncGenerator[list[AsyncBatchItem[T, U]], None]:
         """
         Generate optimal batches of items from the queue.
 

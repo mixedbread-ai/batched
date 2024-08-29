@@ -19,7 +19,7 @@ class AsyncBatchProcessor(Generic[T, U]):
         batch_queue (BatchGenerator[T, U]): The generator for creating optimal batches.
         small_batch_threshold (int): The threshold for considering a batch as small.
         _loop (asyncio.AbstractEventLoop): The event loop for asynchronous operations.
-        _task (asyncio.Task): The task for processing batches.
+        _task (Optional[asyncio.Task]): The task for processing batches.
         _stats (BatchProcessorStats): Statistics about the batch processing.
 
     Type Parameters:
@@ -47,9 +47,19 @@ class AsyncBatchProcessor(Generic[T, U]):
         self.batch_func = utils.ensure_async(_func)
         self.batch_queue = AsyncBatchGenerator[T, U](batch_size, timeout_ms)
 
-        self._loop = utils.get_or_create_event_loop()
-        self._task = self._loop.create_task(self._process_batches())
+        self._start_lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._task: Optional[asyncio.Task] = None
         self._stats = BatchProcessorStats()
+
+    async def _start(self) -> None:
+        """
+        Start the batch processor.
+        """
+        async with self._start_lock:
+            if self._loop is None:
+                self._loop = utils.get_or_create_event_loop()
+                self._task = self._loop.create_task(self._process_batches())
 
     def _determine_priority(self, items: list[T]) -> list[int]:
         """
@@ -74,6 +84,9 @@ class AsyncBatchProcessor(Generic[T, U]):
         Returns:
             list[U]: The list of processed results.
         """
+        if self._loop is None:
+            await self._start()
+
         prioritized = self._determine_priority(items)
 
         batch_items = [
@@ -122,10 +135,12 @@ class AsyncBatchProcessor(Generic[T, U]):
         return self._stats.clone(queue_size=len(self.batch_queue))
 
     @overload
-    async def __call__(self, item: T) -> U: ...
+    async def __call__(self, item: T) -> U:
+        ...
 
     @overload
-    async def __call__(self, items: list[T]) -> list[U]: ...
+    async def __call__(self, items: list[T]) -> list[U]:
+        ...
 
     async def __call__(self, items: Union[T, list[T]]) -> Union[U, list[U]]:
         """
@@ -146,6 +161,7 @@ class AsyncBatchProcessor(Generic[T, U]):
             return
 
         self._task.cancel()
+        self._loop = None
 
 
 def dynamically(

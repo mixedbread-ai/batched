@@ -28,7 +28,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["batched", "batched.*"]
+include = ["batch", "batch.*"]
 
 [tool.setuptools.package-data]
 batch = ["py.typed"]

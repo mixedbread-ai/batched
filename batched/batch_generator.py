@@ -149,7 +149,9 @@ class BatchGenerator(Generic[T, U]):
             if queue_size == 0:
                 continue
 
-            batch_items = [self._queue._get() for _ in range(queue_size)]  # noqa: SLF001
+            n_batches = max(1, queue_size // self._batch_size)
+            size_batches = min(self._batch_size * n_batches, queue_size)
+            batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001
             for batch in batch_iter(batch_items, self._batch_size):
                 if self._stop_requested:
                     break

@@ -1,8 +1,12 @@
 [project]
 name = "batched"
-version = "0.1.0"
-description = "Batched is a flexible and efficient dynamic batching library implemented in Python. It supports asynchronous batch processing with dynamic batching and prioritization."
-authors = [{ name = "Mixedbread", email = "support@mixedbread.ai" }, { name = "Julius Lipp", email = "julius@mixedbread.ai" }, { name = "Rui Huang", email = "rui@mixedbread.ai" }]
+version = "0.1.1"
+description = "Batched is a flexible and efficient batch processing library implemented in Python. It supports asynchronous batch processing with dynamic batching and prioritization."
+authors = [
+    { name = "Mixedbread", email = "support@mixedbread.ai" },
+    { name = "Julius Lipp", email = "julius@mixedbread.ai" },
+    { name = "Rui Huang", email = "rui@mixedbread.ai" },
+]
 dependencies = []
 requires-python = ">=3.9"
 readme = "README.md"
@@ -16,6 +20,7 @@ build-backend = "setuptools.build_meta"
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.24.0",
     "ruff>=0.2.0",
     "pre-commit>=3.6.0",
     "torch>=2.0.0",

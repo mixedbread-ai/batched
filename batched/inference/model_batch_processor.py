@@ -22,10 +22,12 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
     def __init__(
         self,
         _func: BatchInfer,
+        *,
         batch_size: int = 32,
         timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
         pad_tokens: Optional[dict[str, int]] = None,
+        spread_kwargs: bool = False,
     ):
         """
         Initialize the BatchProcessor.
@@ -36,6 +38,7 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
             small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+            spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
         """
         super().__init__(
             _func=_func,  # type: ignore[arg-type]
@@ -44,8 +47,8 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
             small_batch_threshold=small_batch_threshold,
         )
 
-        self.batch_func = _func
         self.pad_tokens = pad_tokens or {}
+        self.spread_kwargs = spread_kwargs
 
     def _process_batches(self):
         """
@@ -66,7 +69,7 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
                     pad_tokens=self.pad_tokens,
                 )
 
-                batch_outputs = self.batch_func(batch_inputs)
+                batch_outputs = self.batch_func(**batch_inputs) if self.spread_kwargs else self.batch_func(batch_inputs)
 
                 unstacked_outputs = unstack_outputs(batch_outputs)
                 for item, output in zip(batch, unstacked_outputs):
@@ -81,10 +84,12 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
                 self._stats.update(len(batch), processing_time)
 
     @overload
-    def __call__(self, features: dict[str, Feature], /) -> Feature: ...
+    def __call__(self, features: dict[str, Feature], /) -> Feature:
+        ...
 
     @overload
-    def __call__(self, **features: Feature) -> Feature: ...
+    def __call__(self, **features: Feature) -> Feature:
+        ...
 
     def __call__(self, *args, **kwargs) -> Feature:
         """
@@ -106,10 +111,12 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
         return stack_outputs(outputs)
 
     @overload
-    async def acall(self, features: dict[str, Feature], /) -> Feature: ...
+    async def acall(self, features: dict[str, Feature], /) -> Feature:
+        ...
 
     @overload
-    async def acall(self, **features: Feature) -> Feature: ...
+    async def acall(self, **features: Feature) -> Feature:
+        ...
 
     async def acall(self, *args, **kwargs) -> Feature:
         """
@@ -136,10 +143,12 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
 def dynamically(
     func: Optional[BatchInfer] = None,
     /,
+    *,
     batch_size: int = 32,
     timeout_ms: float = 5.0,
     small_batch_threshold: int = 8,
     pad_tokens: Optional[dict[str, int]] = None,
+    spread_kwargs: bool = False,
 ) -> Callable:
     """
     Dynamically batch numpy arrays or PyTorch Tensors for inference in a thread.
@@ -154,6 +163,7 @@ def dynamically(
         timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
         small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
         pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+        spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
 
     Returns:
         Callable: A decorator that creates a BatchProcessor for the given function.
@@ -164,7 +174,7 @@ def dynamically(
             # Process the batch of inputs
             return inputs['input1'] * 2 + inputs['input2']
 
-        @inference.dynmically
+        @inference.dynamically
         def process_batch_list(inputs: dict[str, np.ndarray]) -> list[np.ndarray]:
             return [inputs['input1'] * 2, inputs['input2'] * 3]
 
@@ -181,6 +191,13 @@ def dynamically(
     """
 
     def make_processor(_func: BatchInfer) -> ModelBatchProcessor:
-        return ModelBatchProcessor(_func, batch_size, timeout_ms, small_batch_threshold, pad_tokens)
+        return ModelBatchProcessor(
+            _func=_func,
+            batch_size=batch_size,
+            timeout_ms=timeout_ms,
+            small_batch_threshold=small_batch_threshold,
+            pad_tokens=pad_tokens,
+            spread_kwargs=spread_kwargs,
+        )
 
     return _dynamic_batch(make_processor, func)

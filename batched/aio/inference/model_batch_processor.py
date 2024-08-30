@@ -22,10 +22,12 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
     def __init__(
         self,
         _func: BatchInfer,
+        *,
         batch_size: int = 32,
         timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
         pad_tokens: Optional[dict[str, int]] = None,
+        spread_kwargs: bool = False,
     ):
         """
         Initialize the BatchProcessor.
@@ -36,6 +38,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
             small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+            spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
         """
         super().__init__(
             _func=_func,  # type: ignore[arg-type]
@@ -45,6 +48,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
         )
 
         self.pad_tokens = pad_tokens or {}
+        self.spread_kwargs = spread_kwargs
 
     async def _process_batches(self):
         """
@@ -62,7 +66,9 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
                     pad_tokens=self.pad_tokens,
                 )
 
-                batch_outputs = await self.batch_func(batch_inputs)
+                batch_outputs = (
+                    await self.batch_func(**batch_inputs) if self.spread_kwargs else await self.batch_func(batch_inputs)
+                )
 
                 unstacked_outputs = unstack_outputs(batch_outputs)
                 for item, output in zip(batch, unstacked_outputs):
@@ -77,10 +83,12 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
                 self._stats.update(len(batch), processing_time)
 
     @overload
-    async def __call__(self, features: dict[str, Feature], /) -> Feature: ...
+    async def __call__(self, features: dict[str, Feature], /) -> Feature:
+        ...
 
     @overload
-    async def __call__(self, **features: Feature) -> Feature: ...
+    async def __call__(self, **features: Feature) -> Feature:
+        ...
 
     async def __call__(self, *args, **kwargs) -> Feature:
         """
@@ -104,10 +112,12 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
 def dynamically(
     func: Optional[BatchInfer] = None,
     /,
+    *,
     batch_size: int = 32,
     timeout_ms: float = 5.0,
     small_batch_threshold: int = 8,
     pad_tokens: Optional[dict[str, int]] = None,
+    spread_kwargs: bool = False,
 ) -> Callable:
     """
     Dynamically batch numpy arrays or PyTorch Tensors for inference tasks using asyncio.
@@ -122,6 +132,7 @@ def dynamically(
         timeout_ms (float): The maximum wait time in milliseconds for batch formation. Defaults to 5.0.
         small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
         pad_tokens (dict[str, int] | None): Padding token values for each input feature. Defaults to None.
+        spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
 
     Returns:
         Callable: A decorator that creates an AsyncModelBatchProcessor for efficient batched inference.
@@ -136,6 +147,13 @@ def dynamically(
     """
 
     def make_processor(_func: BatchInfer) -> AsyncModelBatchProcessor:
-        return AsyncModelBatchProcessor(_func, batch_size, timeout_ms, small_batch_threshold, pad_tokens)
+        return AsyncModelBatchProcessor(
+            _func=_func,
+            batch_size=batch_size,
+            timeout_ms=timeout_ms,
+            small_batch_threshold=small_batch_threshold,
+            pad_tokens=pad_tokens,
+            spread_kwargs=spread_kwargs,
+        )
 
     return _dynamic_batch(make_processor, func)

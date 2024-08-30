@@ -22,7 +22,7 @@ BatchFunc = Callable[[list[T]], list[U]]
 
 NDArrayOrTensor = TypeVar("NDArrayOrTensor", "np.ndarray", "torch.Tensor")
 Feature = Union[NDArrayOrTensor, list[NDArrayOrTensor]]
-BatchInfer = Callable[[dict[str, Feature]], Feature]
+BatchInfer = Union[Callable[[dict[str, Feature]], Feature], Callable[..., Feature]]
 
 
 def _validate_batch_output(batch_inputs: list[T], batch_outputs: list[U]) -> None:

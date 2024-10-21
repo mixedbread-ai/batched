@@ -3,7 +3,18 @@ from __future__ import annotations
 import asyncio
 import inspect
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Generator, Sequence, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Coroutine,
+    Generator,
+    Generic,
+    Protocol,
+    Sequence,
+    TypeVar,
+    runtime_checkable,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -93,6 +104,28 @@ def batch_iter(seq: Sequence[T], batch_size: int) -> Generator[Sequence[T], None
         yield seq[i : i + batch_size]
 
 
+def batch_iter_by_length(
+    seq: Sequence[T], max_batch_length: int, batch_size: int
+) -> Generator[Sequence[T], None, None]:
+    """Yield batches from a sequence, respecting a maximum batch length."""
+    batch = []
+    current_length = 0
+
+    for item in seq:
+        item_length = len(item)
+
+        if batch and (len(batch) >= batch_size or (current_length + item_length > max_batch_length)):
+            yield batch
+            batch = []
+            current_length = 0
+
+        batch.append(item)
+        current_length += item_length
+
+    if batch:
+        yield batch
+
+
 def bucket_batch_iter(
     data: list[T], batch_size: int, *, descending: bool = True
 ) -> Generator[tuple[list[T], list[int]], None, None]:
@@ -118,3 +151,31 @@ def bucket_batch_iter(
     for batch in batch_iter(data_with_indices, batch_size):
         indices, items = zip(*batch)
         yield list(items), list(indices)
+
+
+T = TypeVar("T")
+U = TypeVar("U")
+
+
+@runtime_checkable
+class Cache(Protocol, Generic[T, U]):
+    def get(self, key: T) -> U | None:
+        ...
+
+    def set(self, key: T, value: U) -> None:
+        ...
+
+
+def _get_cache_key(item: T) -> str:
+    return str(item)
+
+
+class MemoryCache(Cache[T, U]):
+    def __init__(self) -> None:
+        self._cache: dict[T, U] = {}
+
+    def get(self, key: T) -> U | None:
+        return self._cache.get(_get_cache_key(key))
+
+    def set(self, key: T, value: U) -> None:
+        self._cache[_get_cache_key(key)] = value

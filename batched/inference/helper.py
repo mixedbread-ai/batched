@@ -23,7 +23,7 @@ def _is_np(item: Any) -> bool:
 
 
 def _is_torch(item: Any) -> bool:
-    return torch and (torch.is_tensor(item) or isinstance(item, (torch.dtype, torch.Number)))
+    return torch and torch.is_tensor(item)
 
 
 def torch_or_np(item: Any):
@@ -69,14 +69,20 @@ def stack_features(inputs: list[dict[str, Feature]], pad_tokens: dict[str, int])
     """
     lib = torch_or_np(inputs)
     keys = inputs[0].keys()
-    max_length = max(item[first(keys)].shape[0] for item in inputs)
 
-    padded_tensors = {key: lib.full((len(inputs), max_length), pad_tokens.get(key, 0), dtype=lib.int64) for key in keys}
+    dtypes = {key: inputs[0][key].dtype for key in keys}
+    shapes = {key: tuple(item[key].shape for item in inputs) for key in keys}
+    max_shapes = {key: tuple(max(dim) for dim in zip(*shape)) for key, shape in shapes.items()}
+
+    padded_tensors = {
+        key: lib.full((len(inputs), *max_shape), pad_tokens.get(key, 0), dtype=dtypes[key])
+        for key, max_shape in max_shapes.items()
+    }
 
     for i, item in enumerate(inputs):
         for key, tensor in padded_tensors.items():
-            tensor_length = item[key].shape[0]
-            tensor[i, :tensor_length] = item[key]
+            slices = [slice(0, s) for s in shapes[key][i]]
+            tensor[(i, *slices)] = item[key]
 
     return padded_tensors
 

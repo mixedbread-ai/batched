@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic
 
+from batched import utils
 from batched.types import T, U
-from batched.utils import batch_iter
+from batched.utils import Cache, batch_iter, batch_iter_by_length
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -55,6 +57,10 @@ class AsyncBatchItem(Generic[T, U]):
         """Check if the item's future is done."""
         return self.future.done()
 
+    def __len__(self) -> int:
+        """Get the length of the content."""
+        return AsyncBatchItem._get_len(self.content)
+
 
 class AsyncBatchGenerator(Generic[T, U]):
     """
@@ -77,6 +83,9 @@ class AsyncBatchGenerator(Generic[T, U]):
         self,
         batch_size: int = 32,
         timeout_ms: float = 5.0,
+        n_threads: int = 8,
+        cache: utils.Cache[T, U] | None = None,
+        max_batch_length: int | None = None,
     ) -> None:
         """
         Initialize the BatchGenerator.
@@ -88,6 +97,10 @@ class AsyncBatchGenerator(Generic[T, U]):
         self._queue: asyncio.PriorityQueue[AsyncBatchItem[T, U]] = asyncio.PriorityQueue()
         self._batch_size = batch_size
         self._timeout = timeout_ms / 1000  # Convert to seconds
+        self._max_batch_length = max_batch_length
+
+        self._cache = cache
+        self._pool = ThreadPoolExecutor(max_workers=n_threads) if cache else None
 
     def __len__(self) -> int:
         """
@@ -98,6 +111,25 @@ class AsyncBatchGenerator(Generic[T, U]):
         """
         return self._queue.qsize()
 
+    def _check_cache(self, item: AsyncBatchItem[T, U]) -> AsyncBatchItem[T, U]:
+        hit = self._cache.get(item.content)
+        if hit is not None:
+            item.set_result(hit)
+        else:
+            self._wrap_set_result(item)
+
+        return item
+
+    def _wrap_set_result(self, item: AsyncBatchItem[T, U]) -> None:
+        original_set_result = item.set_result
+
+        def wrapped_set_result(result: U) -> None:
+            if self._cache is not None:
+                self._pool.submit(self._cache.set, item.content, result)
+            original_set_result(result)
+
+        item.set_result = wrapped_set_result
+
     async def extend(self, items: list[AsyncBatchItem[T, U]]) -> None:
         """
         Add multiple items to the queue.
@@ -105,7 +137,15 @@ class AsyncBatchGenerator(Generic[T, U]):
         Args:
             items (list[BatchItem[T, U]]): A list of items to add to the queue.
         """
+        if self._cache is None:
+            for item in items:
+                await self._queue.put(item)
+            return
+
+        items = list(self._pool.map(self._check_cache, items))
         for item in items:
+            if item.done():
+                continue
             await self._queue.put(item)
 
     async def optimal_batches(self) -> AsyncGenerator[list[AsyncBatchItem[T, U]], None]:
@@ -128,6 +168,14 @@ class AsyncBatchGenerator(Generic[T, U]):
 
             n_batches = max(1, queue_size // self._batch_size)
             size_batches = min(self._batch_size * n_batches, queue_size)
-            batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001
-            for batch in batch_iter(batch_items, self._batch_size):
+            batch_items = [await self._queue.get() for _ in range(size_batches)]
+
+            if self._max_batch_length is not None:
+                batch_items = batch_iter_by_length(
+                    batch_items, max_batch_length=self._max_batch_length, batch_size=self._batch_size
+                )
+            else:
+                batch_items = batch_iter(batch_items, self._batch_size)
+
+            for batch in batch_items:
                 yield batch

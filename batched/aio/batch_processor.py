@@ -5,7 +5,7 @@ from typing import Generic, Optional, Union, overload
 import batched.utils as utils
 from batched.aio.batch_generator import AsyncBatchGenerator, AsyncBatchItem
 from batched.decorator import _dynamic_batch
-from batched.types import BatchFunc, BatchProcessorStats, T, U, _validate_batch_output
+from batched.types import AsyncCache, BatchFunc, BatchProcessorStats, T, U, _validate_batch_output
 
 
 class AsyncBatchProcessor(Generic[T, U]):
@@ -16,7 +16,7 @@ class AsyncBatchProcessor(Generic[T, U]):
 
     Attributes:
         batch_func (Callable[[list[T]], Awaitable[list[U]]]): The function to process batches.
-        batch_queue (BatchGenerator[T, U]): The generator for creating optimal batches.
+        batch_queue (AsyncBatchGenerator[T, U]): The generator for creating optimal batches.
         small_batch_threshold (int): The threshold for considering a batch as small.
         _loop (asyncio.AbstractEventLoop): The event loop for asynchronous operations.
         _task (asyncio.Task): The task for processing batches.
@@ -30,39 +30,64 @@ class AsyncBatchProcessor(Generic[T, U]):
     def __init__(
         self,
         _func: BatchFunc[T, U],
+        *,
         batch_size: int = 32,
         timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
+        cache: AsyncCache[T, U] | None = None,
+        prioritize_by_length: bool = False,
+        max_batch_length: int | None = None,
+        item_len_fn: Callable[[T], int] | None = None,
     ):
         """
-        Initialize the BatchProcessor.
+        Initialize the AsyncBatchProcessor.
 
         Args:
             _func (BatchFunc[T, U]): The function to process batches.
             batch_size (int): The maximum size of each batch. Defaults to 32.
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
             small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
+            cache (AsyncCache[T, U] | None): An optional cache for storing results. Defaults to None.
+            prioritize_by_length (bool): Whether to prioritize items by length. Defaults to False.
+            max_batch_length (int | None): The maximum length of a batch. Defaults to None.
+            item_len_fn (Callable[[T], int] | None): A function to get the length of an item. Defaults to None.
         """
-        self.small_batch_threshold = small_batch_threshold
         self.batch_func = utils.ensure_async(_func)
-        self.batch_queue = AsyncBatchGenerator[T, U](batch_size, timeout_ms)
+        self.batch_queue = AsyncBatchGenerator[T, U](
+            batch_size=batch_size,
+            timeout_ms=timeout_ms,
+            cache=cache,
+            max_batch_length=max_batch_length,
+        )
+        self._stats = BatchProcessorStats()
 
+        self._loop = None
+        self._task = None
+        self._len_fn = item_len_fn
+        self._prioritize_by_length = prioritize_by_length
+        self.small_batch_threshold = small_batch_threshold
+
+    def _start(self) -> None:
         self._loop = utils.get_or_create_event_loop()
         self._task = self._loop.create_task(self._process_batches())
-        self._stats = BatchProcessorStats()
 
     def _determine_priority(self, items: list[T]) -> list[int]:
         """
-        Determine if items should be prioritized based on the batch size.
+        Determine the priority of items based on batch size and content length.
 
         Args:
             items (list[T]): The list of items to prioritize.
 
         Returns:
-            list[bool]: A list of boolean values indicating the priority of each item.
+            list[int]: A list of integer values indicating the priority of each item.
         """
-        priority = 0 if len(items) <= self.small_batch_threshold else 1
-        return [priority] * len(items)
+        if len(items) <= self.small_batch_threshold:
+            return [0] * len(items)
+
+        if not self._prioritize_by_length:
+            return [1] * len(items)
+
+        return [len(item) for item in items]
 
     async def _schedule(self, items: list[T]) -> list[U]:
         """
@@ -74,6 +99,9 @@ class AsyncBatchProcessor(Generic[T, U]):
         Returns:
             list[U]: The list of processed results.
         """
+        if self._loop is None:
+            self._start()
+
         prioritized = self._determine_priority(items)
 
         batch_items = [
@@ -81,6 +109,7 @@ class AsyncBatchProcessor(Generic[T, U]):
                 content=item,
                 priority=prio,
                 future=self._loop.create_future(),
+                _len_fn=self._len_fn,
             )
             for item, prio in zip(items, prioritized)
         ]
@@ -122,10 +151,12 @@ class AsyncBatchProcessor(Generic[T, U]):
         return self._stats.clone(queue_size=len(self.batch_queue))
 
     @overload
-    async def __call__(self, item: T) -> U: ...
+    async def __call__(self, item: T) -> U:
+        ...
 
     @overload
-    async def __call__(self, items: list[T]) -> list[U]: ...
+    async def __call__(self, items: list[T]) -> list[U]:
+        ...
 
     async def __call__(self, items: Union[T, list[T]]) -> Union[U, list[U]]:
         """
@@ -142,18 +173,24 @@ class AsyncBatchProcessor(Generic[T, U]):
         return (await self._schedule([items]))[0]
 
     def __del__(self):
-        if self._task is None or not self._loop.is_running():
+        if self._loop is None or self._loop.is_closed():
             return
-
+        if self._task is None:
+            return
         self._task.cancel()
 
 
 def dynamically(
     func: Optional[BatchFunc[T, U]] = None,
     /,
+    *,
     batch_size: int = 32,
     timeout_ms: float = 5.0,
     small_batch_threshold: int = 8,
+    max_batch_length: int | None = None,
+    prioritize_by_length: bool = False,
+    item_len_fn: Callable[[T], int] | None = None,
+    cache: AsyncCache[T, U] | None = None,
 ) -> Callable:
     """
     Dynamically batch inputs for processing using asyncio.
@@ -169,6 +206,10 @@ def dynamically(
         batch_size (int): The maximum size of each batch. Defaults to 32.
         timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
         small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
+        max_batch_length (int | None): The maximum length of a batch. Defaults to None.
+        prioritize_by_length (bool): Whether to prioritize items by length. Defaults to False.
+        item_len_fn (Callable[[T], int] | None): A function to get the length of an item. Defaults to None.
+        cache (AsyncCache[T, U] | None): An optional cache for storing results. Defaults to None.
 
     Returns:
         Callable: A decorator that creates an AsyncBatchProcessor for the given function.
@@ -197,6 +238,15 @@ def dynamically(
     """
 
     def make_processor(_func: BatchFunc[T, U]) -> AsyncBatchProcessor[T, U]:
-        return AsyncBatchProcessor(_func, batch_size, timeout_ms, small_batch_threshold)
+        return AsyncBatchProcessor(
+            _func,
+            batch_size=batch_size,
+            timeout_ms=timeout_ms,
+            small_batch_threshold=small_batch_threshold,
+            max_batch_length=max_batch_length,
+            cache=cache,
+            prioritize_by_length=prioritize_by_length,
+            item_len_fn=item_len_fn,
+        )
 
     return _dynamic_batch(make_processor, func)

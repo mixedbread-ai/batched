@@ -11,7 +11,7 @@ from batched.inference.helper import (
     unstack_features,
     unstack_outputs,
 )
-from batched.types import BatchInfer, Feature
+from batched.types import AsyncCache, BatchInfer, Feature
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,9 +22,14 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
     def __init__(
         self,
         _func: BatchInfer,
+        *,
         batch_size: int = 32,
         timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
+        cache: AsyncCache[dict[str, Feature], Feature] | None = None,
+        prioritize_by_length: bool = False,
+        max_batch_length: int | None = None,
+        item_len_fn: Callable[[dict[str, Feature]], int] | None = None,
         pad_tokens: Optional[dict[str, int]] = None,
     ):
         """
@@ -35,6 +40,10 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
             batch_size (int): The maximum size of each batch. Defaults to 32.
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
             small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
+            cache (AsyncCache[dict[str, Feature], Feature] | None): An optional cache for storing results. Defaults to None.
+            prioritize_by_length (bool): Whether to prioritize items by length. Defaults to False.
+            max_batch_length (int | None): The maximum length of a batch. Defaults to None.
+            item_len_fn (Callable[[dict[str, Feature]], int] | None): A function to get the length of an item. Defaults to None.
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
         """
         super().__init__(
@@ -42,6 +51,10 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
             batch_size=batch_size,
             timeout_ms=timeout_ms,
             small_batch_threshold=small_batch_threshold,
+            cache=cache,
+            prioritize_by_length=prioritize_by_length,
+            max_batch_length=max_batch_length,
+            item_len_fn=item_len_fn,
         )
 
         self.pad_tokens = pad_tokens or {}
@@ -77,10 +90,12 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
                 self._stats.update(len(batch), processing_time)
 
     @overload
-    async def __call__(self, features: dict[str, Feature], /) -> Feature: ...
+    async def __call__(self, features: dict[str, Feature], /) -> Feature:
+        ...
 
     @overload
-    async def __call__(self, **features: Feature) -> Feature: ...
+    async def __call__(self, **features: Feature) -> Feature:
+        ...
 
     async def __call__(self, *args, **kwargs) -> Feature:
         """
@@ -104,9 +119,13 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
 def dynamically(
     func: Optional[BatchInfer] = None,
     /,
+    *,
     batch_size: int = 32,
     timeout_ms: float = 5.0,
     small_batch_threshold: int = 8,
+    max_batch_length: int | None = None,
+    prioritize_by_length: bool = False,
+    item_len_fn: Callable[[dict[str, Feature]], int] | None = None,
     pad_tokens: Optional[dict[str, int]] = None,
 ) -> Callable:
     """
@@ -121,6 +140,9 @@ def dynamically(
         batch_size (int): The maximum number of samples in each batch. Defaults to 32.
         timeout_ms (float): The maximum wait time in milliseconds for batch formation. Defaults to 5.0.
         small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
+        max_batch_length (int | None): The maximum length of a batch. Defaults to None.
+        prioritize_by_length (bool): Whether to prioritize items by length. Defaults to False.
+        item_len_fn (Callable[[dict[str, Feature]], int] | None): A function to get the length of an item. Defaults to None.
         pad_tokens (dict[str, int] | None): Padding token values for each input feature. Defaults to None.
 
     Returns:
@@ -136,6 +158,15 @@ def dynamically(
     """
 
     def make_processor(_func: BatchInfer) -> AsyncModelBatchProcessor:
-        return AsyncModelBatchProcessor(_func, batch_size, timeout_ms, small_batch_threshold, pad_tokens)
+        return AsyncModelBatchProcessor(
+            _func,
+            batch_size=batch_size,
+            timeout_ms=timeout_ms,
+            small_batch_threshold=small_batch_threshold,
+            max_batch_length=max_batch_length,
+            prioritize_by_length=prioritize_by_length,
+            item_len_fn=item_len_fn,
+            pad_tokens=pad_tokens,
+        )
 
     return _dynamic_batch(make_processor, func)

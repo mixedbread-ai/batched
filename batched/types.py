@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeVar, Union
+from typing import Generic, Protocol, TypeVar, Union, runtime_checkable
 
 try:
     import torch
@@ -78,3 +78,51 @@ class BatchProcessorStats:
             avg_batch_size=self.avg_batch_size,
             avg_processing_time=self.avg_processing_time,
         )
+
+
+@runtime_checkable
+class AsyncCache(Protocol, Generic[T, U]):
+    async def get(self, key: T) -> U | None:
+        """
+        Get a value from the cache.
+
+        Args:
+            key (T): The key to retrieve from the cache.
+
+        Returns:
+            Optional[U]: The value associated with the key, or None if the key is not found.
+        """
+
+    async def set(self, key: T, value: U) -> None:
+        """
+        Set a value in the cache.
+
+        Args:
+            key (T): The key to set in the cache.
+            value (U): The value to associate with the key.
+        """
+
+
+@runtime_checkable
+class Cache(Protocol, Generic[T, U]):
+    def get(self, key: T) -> U | None:
+        """
+        Get a value from the cache.
+
+        Args:
+            key (T): The key to retrieve from the cache.
+
+        Returns:
+            Optional[U]: The value associated with the key, or None if the key is not found.
+        """
+        ...
+
+    def set(self, key: T, value: U) -> None:
+        """
+        Set a value in the cache.
+
+        Args:
+            key (T): The key to set in the cache.
+            value (U): The value to associate with the key.
+        """
+        ...

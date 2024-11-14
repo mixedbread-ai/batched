@@ -16,10 +16,11 @@ from typing import (
     Sequence,
     TypeVar,
     runtime_checkable,
+    Tuple
 )
 import time
 
-from batched.types import AsyncCache, Cache, BatchProcessorCacheStats
+from batched.types import AsyncCache, BatchProcessorStats, Cache, BatchProcessorCacheStats
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -192,7 +193,6 @@ class AsyncDiskCache(AsyncCache[T, U]):
 
         self._cache = diskcache.Cache(directory, **kwargs)
         self._pool = ThreadPoolExecutor(max_workers=n_threads)
-        self._stats = BatchProcessorCacheStats()
 
     async def get(self, key: T) -> U | None:
         loop = asyncio.get_running_loop()
@@ -204,17 +204,19 @@ class AsyncDiskCache(AsyncCache[T, U]):
 
 
 class AsyncMemoryCache(AsyncCache[T, U]):
-    def __init__(self, maxsize: int = 10000) -> None:
+    def __init__(self, maxsize: int = 10000, statistics: bool = True) -> None:
         self._cache = OrderedDict()
         self._maxsize = maxsize
         self._stats = BatchProcessorCacheStats()
+        self._record_stats = statistics
 
     async def get(self, key: T) -> U | None:
         t0 = time.time()
         hit = self._cache.get(self._get_key(key))
         if hit is not None:
             self._cache.move_to_end(self._get_key(key))
-        self._stats.update_get(hit, time.time()-t0)
+        if self._record_stats:
+            self._stats.update_get(hit is not None, time.time()-t0)
         return hit
 
     async def set(self, key: T, value: U) -> None:
@@ -225,10 +227,31 @@ class AsyncMemoryCache(AsyncCache[T, U]):
             self._cache.popitem(last=False)
         self._cache[self._get_key(key)] = value
         self._cache.move_to_end(self._get_key(key))
-        self._stats.update_set(len(self._cache), self._maxsize, item_popped, time.time()-t0)
+        if self._record_stats:
+            self._stats.update_set(len(self._cache), self._maxsize, item_popped, time.time()-t0)
 
-    def restart_stats(self) -> None:
+    def _restart_stats(self) -> None:
         self._stats = BatchProcessorCacheStats()
+
+    def stats(self, processor_stats: BatchProcessorStats | None = None, enable: bool = True, reset: bool = False) -> BatchProcessorCacheStats:
+        """
+        This function returns the running statistics of the cache.
+        If BatchProcessorStats is passed the latency reduction that the cache provided is calculated.
+
+        Args:
+            processor_stats (BatchProcessorStats | None): The BatchProcessorStats of the batched endpoint. If passed the BatchProcessorCacheStats will include the latency_reduction calculation.
+            enable (bool): True if you want to continue to record statistics. False otherwise.
+            reset (bool): True if you want to set to 0 the statistics recorded. False otherwise.
+
+        Returns:
+            BatchProcessorCacheStats: A dataclass containing the relevant statistics of the cache.
+        """
+        self._record_stats = enable
+        stats = self._stats.get_stats(cache=self._cache, maxsize=self._maxsize, batch_processor_stats=processor_stats)
+        if reset:
+            self._restart_stats()
+        return stats
+
 
     def _get_key(self, key: T) -> str:
         return str(key)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 from dataclasses import dataclass
 from typing import Generic, Protocol, TypeVar, Union, runtime_checkable
 
@@ -45,23 +45,28 @@ class BatchProcessorCacheStats:
     total_hits: int = 0
     hit_rate: float = 0.0
     utilization_rate: float = 0.0
-    total_pops: int = 0.0
+    total_pops: int = 0
     eviction_rate: float = 0.0
-    total_get_time: float = 0.0
+    total_get_hit_time: float = 0.0
+    total_get_miss_time: float = 0.0
     total_set_time: float = 0.0
+    latency_reduction: float = 0.0
 
-    def update_get(self, hit: T | None, get_time: float) -> None:
+    def update_get(self, is_hit: bool, get_time: float) -> None:
         """
         Update the statistics based on the batch size and processing time.
 
         Args:
-            batch_size (int): The size of the processed batch.
-            processing_time (float): The time taken to process the batch in seconds.
+            hit (bool): The hitted element, None if there is no hit.
+            get_time (float): The time taken to process the get function.
         """
         self.total_gets += 1
-        self.total_hits += 1 if hit is not None else 0
+        self.total_hits += is_hit
         self.hit_rate = self.total_hits / self.total_gets
-        self.total_get_time += get_time
+        if is_hit:
+            self.total_get_hit_time += get_time
+        else:
+            self.total_get_miss_time += get_time
 
 
     def update_set(self, cache_len: float, cache_size: float, item_popped: bool, set_time: float) -> None:
@@ -69,37 +74,76 @@ class BatchProcessorCacheStats:
         Update the statistics based on the batch size and processing time.
 
         Args:
-            batch_size (int): The size of the processed batch.
-            processing_time (float): The time taken to process the batch in seconds.
+            cache_len (float): The current utilization of the cache.
+            cache_size (float): The total allocation used for the cache.
+            item_popped (bool): True if an item was popped from the cache in this set instance. False otherwise.
+            set_time (float): The time taken to process the set function.
         """
         self.total_sets += 1
 
-        # This is almost always going to be 100% since we don't have time expiry in any of the cache implementations.
+        # Mostly irrelevant without a timeout for cache items. Can still be useful if cache_size is too big.
         self.utilization_rate = cache_len / cache_size
 
         self.total_pops += item_popped
 
-        # This also does not make much sense without a time expiry for cache items, since total_pops will always be total_sets-maxsize if total_sets > maxsize
+        # This does not make much sense without a time expiry for cache items, since total_pops will always be total_sets-maxize if total_sets > maxsize
         self.eviction_rate = self.total_pops / self.total_sets
         self.total_set_time += set_time
 
 
-    def clone(self, *, queue_size: int) -> BatchProcessorStats:
+    def get_stats(self, cache: object | None = None, maxsize: int | None = None, batch_processor_stats: BatchProcessorStats | None = None) -> BatchProcessorCacheStats:
         """
-        Create a clone of the current statistics object with an updated queue size.
+        Gets the cache stats.
 
         Args:
-            queue_size (int): The new queue size to set in the cloned object.
+            cache (AsyncCache | None): The cache object.
+            maxsize (int | None): The max size of the cache.
+            batch_processor_stats (BatchProcessorStats | None): The stats of the batch processor. Used for the latency reduction calculation.
 
         Returns:
-            BatchProcessorStats: A new BatchProcessorStats object with updated queue size and copied statistics.
+            BatchProcessorCacheStats:
+                total_gets (int): How many get operations were performed.
+                total_sets (int): How many set operations were performed.
+                total_hits (int): How many of the get operations were a hit.
+                hit_rate (float): The proportion of hits wrt the total_gets.
+                utilization_rate (float): How much of the cache size are we using.
+                total_pops (int): How many times did we pop an item.
+                eviction_rate (float): How many times did we pop wrt the total_sets.
+                total_get_hit_time (float): The total time spent in get operations in case of hit.
+                total_get_nonhit_time (float): The total time spent in get operations in case of a miss.
+                total_set_time (float): The total time spent in set operations.
+                latency_reduction (float): The total time we saved using the cache implementation.
         """
+
+        if maxsize is not None and cache is not None:
+            if isinstance(cache, Sized):
+                self.utilization_rate = len(cache) / maxsize
+
+        if batch_processor_stats is not None and batch_processor_stats.avg_batch_size > 0:
+            # avg non hit processing time per element
+            avg_processing_time_per_element = batch_processor_stats.avg_processing_time / batch_processor_stats.avg_batch_size
+
+            # how much time we would have spent calculating if we did not have a cache
+            total_processing_time_per_element = avg_processing_time_per_element * self.total_hits 
+            
+        else:
+            total_processing_time_per_element = 0
+
+        # the latency reduction is the time we would have spent if we had no cache minus the total cache overhead
+        latency_reduction = total_processing_time_per_element - (self.total_get_hit_time + self.total_get_miss_time + self.total_set_time)
+
         return BatchProcessorCacheStats(
-            total_accessed=self.total_accessed,
+            total_gets=self.total_gets,
+            total_sets=self.total_sets,
             total_hits=self.total_hits,
-            total_batches=self.total_batches,
-            avg_batch_size=self.avg_batch_size,
-            avg_processing_time=self.avg_processing_time,
+            hit_rate=self.hit_rate,
+            utilization_rate=self.utilization_rate,
+            total_pops=self.total_pops,
+            eviction_rate=self.eviction_rate,
+            total_get_hit_time=self.total_get_hit_time,
+            total_get_miss_time=self.total_get_miss_time,
+            total_set_time=self.total_set_time,
+            latency_reduction=latency_reduction
         )
 
 

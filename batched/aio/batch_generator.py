@@ -189,7 +189,7 @@ class AsyncBatchGenerator(Generic[T, U]):
 
             n_batches = max(1, queue_size // self._batch_size)
             size_batches = min(self._batch_size * n_batches, queue_size)
-            batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001 
+            batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001
 
             if self._max_batch_length is not None:
                 batch_items = batch_iter_by_length(
@@ -198,5 +198,5 @@ class AsyncBatchGenerator(Generic[T, U]):
             else:
                 batch_items = batch_iter(batch_items, self._batch_size)
 
-            for batch in batch_items: 
+            for batch in batch_items:
                 yield batch

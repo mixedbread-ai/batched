@@ -86,7 +86,7 @@ class BatchProcessorCacheStats:
 
         self.total_pops += item_popped
 
-        # This does not make much sense without a time expiry for cache items, since total_pops will always be total_sets-maxize if total_sets > maxsize
+        # This does not make much sense without a time expiry for cache items, since total_pops will always be total_sets-maxsize if total_sets > maxsize
         self.eviction_rate = self.total_pops / self.total_sets
         self.total_set_time += set_time
 
@@ -96,7 +96,7 @@ class BatchProcessorCacheStats:
         Gets the cache stats.
 
         Args:
-            cache (AsyncCache | None): The cache object.
+            cache (object | None): The cache object.
             maxsize (int | None): The max size of the cache.
             batch_processor_stats (BatchProcessorStats | None): The stats of the batch processor. Used for the latency reduction calculation.
 

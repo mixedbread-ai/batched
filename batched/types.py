@@ -57,7 +57,7 @@ class BatchProcessorCacheStats:
         Update the statistics based on the batch size and processing time.
 
         Args:
-            hit (bool): The hitted element, None if there is no hit.
+            hit (bool): The hit element, None if there is no hit.
             get_time (float): The time taken to process the get function.
         """
         self.total_gets += 1

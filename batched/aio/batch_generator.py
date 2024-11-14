@@ -140,10 +140,12 @@ class AsyncBatchGenerator(Generic[T, U]):
 
     async def _check_cache(self, item: AsyncBatchItem[T, U]) -> AsyncBatchItem[T, U]:
         """Check if the item is in the cache and set the result if it is."""
-        # print(f"Trying to get {item.content}", self._cache._cache.keys())
-        hit = await self._cache.get(item.content)
+        if self._cache is not None:
+            hit = await self._cache.get(item.content)
+        else:
+            hit = None
+
         if hit is not None:
-            print("We got a hit boyz")
             item.set_result(hit)
         else:
             self._wrap_set_result(item)
@@ -167,15 +169,6 @@ class AsyncBatchGenerator(Generic[T, U]):
             if not result.done():
                 await self._queue.put(result)
 
-    async def get_batch_items(self, size_batches: int) -> list[AsyncBatchItem[T, U]]:
-        result = []
-        for _ in range(size_batches):
-            element = self._queue._get()
-            item = await self._check_cache(element)
-            result.append(item)
-        return result
-        # return [self._queue._get() for _ in range(size_batches)]
-
     async def optimal_batches(self) -> AsyncGenerator[list[AsyncBatchItem[T, U]], None]:
         """
         Generate optimal batches of items from the queue.
@@ -197,15 +190,12 @@ class AsyncBatchGenerator(Generic[T, U]):
             n_batches = max(1, queue_size // self._batch_size)
             size_batches = min(self._batch_size * n_batches, queue_size)
             batch_items = await self.get_batch_items(size_batches)
-            # batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001 # More complex function in order to get the batch items?
-            print(size_batches, len(batch_items), batch_items)
-
+            batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001 
             if self._max_batch_length is not None:
                 batch_items = batch_iter_by_length(
                     batch_items, max_batch_length=self._max_batch_length, batch_size=self._batch_size
                 )
             else:
-                batch_items = batch_iter(batch_items, self._batch_size) # check cache here?            
-
-            for batch in batch_items: # push to queue instead of yielding?
+                batch_items = batch_iter(batch_items, self._batch_size) 
+            for batch in batch_items: 
                 yield batch

@@ -38,6 +38,7 @@ class AsyncBatchProcessor(Generic[T, U]):
         prioritize_by_length: bool = False,
         max_batch_length: int | None = None,
         item_len_fn: Callable[[T], int] | None = None,
+        use_batch_cache: bool = False
     ):
         """
         Initialize the AsyncBatchProcessor.
@@ -51,6 +52,10 @@ class AsyncBatchProcessor(Generic[T, U]):
             prioritize_by_length (bool): Whether to prioritize items by length. Defaults to False.
             max_batch_length (int | None): The maximum length of a batch. Defaults to None.
             item_len_fn (Callable[[T], int] | None): A function to get the length of an item. Defaults to None.
+            use_batch_cache (bool): If set to True the batch generator will construct a cache for each batch and then read on that instead of doing it on the main cache.
+                This is useful if the main cache is stored on disk, since then the get/set is batched instead of doing it 1 by 1, 
+                which can speed up results by 2X, otherwise the overhead is not worth it.
+                If set to True the cache has to implement a get_all() method. Defaults to False.
         """
         self.batch_func = utils.ensure_async(_func)
         self.batch_queue = AsyncBatchGenerator[T, U](
@@ -58,6 +63,7 @@ class AsyncBatchProcessor(Generic[T, U]):
             timeout_ms=timeout_ms,
             cache=cache,
             max_batch_length=max_batch_length,
+            use_batch_cache=use_batch_cache
         )
         self._stats = BatchProcessorStats()
 
@@ -113,6 +119,7 @@ class AsyncBatchProcessor(Generic[T, U]):
             )
             for item, prio in zip(items, prioritized)
         ]
+        await self.batch_queue.set_batch_cache(batch_items)
         await self.batch_queue.extend(batch_items)
 
         futures = [item.future for item in batch_items]
@@ -191,6 +198,7 @@ def dynamically(
     prioritize_by_length: bool = False,
     item_len_fn: Callable[[T], int] | None = None,
     cache: AsyncCache[T, U] | None = None,
+    use_batch_cache: bool = False
 ) -> Callable:
     """
     Dynamically batch inputs for processing using asyncio.
@@ -210,6 +218,10 @@ def dynamically(
         prioritize_by_length (bool): Whether to prioritize items by length. Defaults to False.
         item_len_fn (Callable[[T], int] | None): A function to get the length of an item. Defaults to None.
         cache (AsyncCache[T, U] | None): An optional cache for storing results. Defaults to None.
+        use_batch_cache (bool): If set to True the batch generator will construct a cache for each batch and then read on that instead of doing it on the main cache.
+                This is useful if the main cache is stored on disk, since then the get/set is batched instead of doing it 1 by 1, 
+                which can speed up results by 2X, otherwise the overhead is not worth it.
+                If set to True the cache has to implement a get_all() method. Defaults to False.
 
     Returns:
         Callable: A decorator that creates an AsyncBatchProcessor for the given function.
@@ -247,6 +259,7 @@ def dynamically(
             cache=cache,
             prioritize_by_length=prioritize_by_length,
             item_len_fn=item_len_fn,
+            use_batch_cache=use_batch_cache
         )
 
     return _dynamic_batch(make_processor, func)

@@ -62,34 +62,42 @@ class BatchProcessorCacheStats:
         """
         self.total_gets += 1
         self.total_hits += is_hit
-        self.hit_rate = self.total_hits / self.total_gets
+
         if is_hit:
             self.total_get_hit_time += get_time
         else:
             self.total_get_miss_time += get_time
 
 
-    def update_set(self, cache_len: float, cache_size: float, item_popped: bool, set_time: float) -> None:
+    def update_batch_get(self, n_gets: int, n_hits: int, get_time: float) -> None:
+        """
+        Update the statistics in batch, given a set of parameters.
+
+        Args:
+            n_gets (int): How many get operations were performed.
+            n_hits (int): How many hits were achieved.
+            get_time (float): The total time spent in the operations.
+        """
+        self.total_gets += n_gets
+        self.total_hits += n_hits
+        self.total_get_hit_time += (get_time / n_gets) * n_hits
+        self.total_get_miss_time += (get_time / n_gets) * (n_gets - n_hits)
+
+
+    def update_set(self, item_popped: bool, set_time: float) -> None:
         """
         Update the statistics based on the batch size and processing time.
 
         Args:
-            cache_len (float): The current utilization of the cache.
-            cache_size (float): The total allocation used for the cache.
             item_popped (bool): True if an item was popped from the cache in this set instance. False otherwise.
             set_time (float): The time taken to process the set function.
         """
         self.total_sets += 1
 
-        # Mostly irrelevant without a timeout for cache items. Can still be useful if cache_size is too big.
-        self.utilization_rate = cache_len / cache_size
-
         self.total_pops += item_popped
 
-        # This does not make much sense without a time expiry for cache items, since total_pops will always be total_sets-maxsize if total_sets > maxsize
-        self.eviction_rate = self.total_pops / self.total_sets
         self.total_set_time += set_time
-
+        
 
     def get_stats(self, cache: object | None = None, maxsize: int | None = None, batch_processor_stats: BatchProcessorStats | None = None) -> BatchProcessorCacheStats:
         """
@@ -117,7 +125,13 @@ class BatchProcessorCacheStats:
 
         if maxsize is not None and cache is not None:
             if isinstance(cache, Sized):
+                # Mostly irrelevant without a timeout for cache items. Can still be useful if cache_size is too big.
                 self.utilization_rate = len(cache) / maxsize
+
+        # This does not make much sense without a time expiry for cache items, since total_pops will always be total_sets-maxsize if total_sets > maxsize
+        self.eviction_rate = (self.total_pops / self.total_sets) if self.total_sets > 0 else 0
+
+        self.hit_rate = (self.total_hits / self.total_gets) if self.total_gets > 0 else 0
 
         if batch_processor_stats is not None and batch_processor_stats.avg_batch_size > 0:
             # avg non hit processing time per element

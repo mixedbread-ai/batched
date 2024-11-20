@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping, Sized
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic
 
@@ -59,10 +60,16 @@ class AsyncBatchItem(Generic[T, U]):
     @staticmethod
     def _get_len(content: T) -> int:
         """Get the length of the content."""
-        if isinstance(content, (list, tuple, set, str)):
+        if content is None:
+            return 0
+
+        if isinstance(content, Sized):
             return len(content)
-        if isinstance(content, dict):
-            return len(first(content.values()))
+
+        if isinstance(content, Mapping):
+            value = first(content.values())
+            return AsyncBatchItem._get_len(value)
+
         return 1
 
     def __len__(self) -> int:
@@ -129,7 +136,7 @@ class AsyncBatchGenerator(Generic[T, U]):
         """
         return self._queue.qsize()
 
-    def _wrap_set_result(self, item: AsyncBatchItem[T, U]) -> None:
+    def _wrap_set_result(self, item: AsyncBatchItem[T, U]) -> Callable[[U], None]:
         """Wrap the set_result method to store results in the cache."""
 
         def wrapper(original_set_result):

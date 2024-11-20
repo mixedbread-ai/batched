@@ -19,7 +19,7 @@ format:	## Run code autoformatters (ruff).
 	uv run ruff format .
 
 lint:	## Run linters: ruff
-	uv run ruff check .
+	uv run ruff check . --fix
 
 test:	## Run tests via pytest
 	uv run pytest

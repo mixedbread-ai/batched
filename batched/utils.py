@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
 T = TypeVar("T")
+U = TypeVar("U")
 
 
 @contextmanager
@@ -172,10 +173,6 @@ def bucket_batch_iter(
         yield list(items), list(indices)
 
 
-T = TypeVar("T")
-U = TypeVar("U")
-
-
 class AsyncDiskCache(AsyncCache[T, U]):
     """An asynchronous disk-based cache implementation."""
 
@@ -207,8 +204,7 @@ class AsyncDiskCache(AsyncCache[T, U]):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(pool, functools.partial(func, *args, **kwargs))
 
-    def _get(self, key: T) -> str:
-        """Get the string key from the input key."""
+    def _get(self, key: T) -> U | None:
         key = self._get_key(key)
         return self._cache.get(key)
 
@@ -259,5 +255,5 @@ class AsyncDiskCache(AsyncCache[T, U]):
         return self._stats
 
     def _get_key(self, key: T):
-        """Get the string key from the input key."""
+        """Get the cache key from the input key."""
         return key

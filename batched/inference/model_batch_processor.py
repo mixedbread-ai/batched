@@ -84,12 +84,10 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
                 self._stats.update(len(batch), processing_time)
 
     @overload
-    def __call__(self, features: dict[str, Feature], /) -> Feature:
-        ...
+    def __call__(self, features: dict[str, Feature], /) -> Feature: ...
 
     @overload
-    def __call__(self, **features: Feature) -> Feature:
-        ...
+    def __call__(self, **features: Feature) -> Feature: ...
 
     def __call__(self, *args, **kwargs) -> Feature:
         """
@@ -111,12 +109,10 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
         return stack_outputs(outputs)
 
     @overload
-    async def acall(self, features: dict[str, Feature], /) -> Feature:
-        ...
+    async def acall(self, features: dict[str, Feature], /) -> Feature: ...
 
     @overload
-    async def acall(self, **features: Feature) -> Feature:
-        ...
+    async def acall(self, **features: Feature) -> Feature: ...
 
     async def acall(self, *args, **kwargs) -> Feature:
         """

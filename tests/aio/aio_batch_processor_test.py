@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from batched.aio.batch_processor import AsyncBatchProcessor, dynamically
+from batched.types import PriorityStrategy
 
 
 @pytest.mark.asyncio
@@ -45,7 +46,7 @@ async def test_async_batch_processor_prioritize():
     async def dummy_batch_func(items):
         return items
 
-    processor = AsyncBatchProcessor(dummy_batch_func, small_batch_threshold=3)
+    processor = AsyncBatchProcessor(dummy_batch_func, small_batch_threshold=3, priority_strategy=PriorityStrategy.PRIORITY)
     
     assert processor._determine_priority([1, 2]) == [0, 0]
     assert processor._determine_priority([1, 2, 3, 4]) == [1, 1, 1, 1]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, overload
 
+from batched.aio.batch_generator import AsyncBatchItem
 from batched.aio.batch_processor import AsyncBatchProcessor
 from batched.decorator import _dynamic_batch
 from batched.inference.helper import (
@@ -11,7 +12,7 @@ from batched.inference.helper import (
     unstack_features,
     unstack_outputs,
 )
-from batched.types import BatchInfer, Feature
+from batched.types import AsyncCache, BatchInfer, Feature, PriorityStrategy
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,7 +27,11 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
         batch_size: int = 32,
         timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
+        cache: AsyncCache[dict[str, Feature], Feature] | None = None,
+        max_batch_length: int | None = None,
         pad_tokens: Optional[dict[str, int]] = None,
+        priority_strategy: PriorityStrategy = PriorityStrategy.NONE,
+        batch_item_cls: type[AsyncBatchItem[dict[str, Feature], Feature]] = AsyncBatchItem[dict[str, Feature], Feature],
         spread_kwargs: bool = False,
     ):
         """
@@ -37,14 +42,22 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
             batch_size (int): The maximum size of each batch. Defaults to 32.
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
             small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
+            cache (AsyncCache | None): An optional cache for storing results. Defaults to None.
+            max_batch_length (int | None): The maximum length of a batch. Defaults to None.
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+            priority_strategy (PriorityStrategy): The strategy to use for prioritizing items.
+            batch_item_cls (type[AsyncBatchItem]): The class to use for batch items. Defaults to AsyncBatchItem.
             spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
         """
         super().__init__(
-            _func=_func,  # type: ignore[arg-type]
+            func=_func,  # type: ignore[arg-type]
             batch_size=batch_size,
             timeout_ms=timeout_ms,
             small_batch_threshold=small_batch_threshold,
+            cache=cache,
+            max_batch_length=max_batch_length,
+            priority_strategy=priority_strategy,
+            batch_item_cls=batch_item_cls,
         )
 
         self.pad_tokens = pad_tokens or {}
@@ -83,12 +96,10 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
                 self._stats.update(len(batch), processing_time)
 
     @overload
-    async def __call__(self, features: dict[str, Feature], /) -> Feature:
-        ...
+    async def __call__(self, features: dict[str, Feature], /) -> Feature: ...
 
     @overload
-    async def __call__(self, **features: Feature) -> Feature:
-        ...
+    async def __call__(self, **features: Feature) -> Feature: ...
 
     async def __call__(self, *args, **kwargs) -> Feature:
         """
@@ -116,22 +127,26 @@ def dynamically(
     batch_size: int = 32,
     timeout_ms: float = 5.0,
     small_batch_threshold: int = 8,
+    max_batch_length: int | None = None,
     pad_tokens: Optional[dict[str, int]] = None,
+    priority_strategy: PriorityStrategy = PriorityStrategy.NONE,
+    cache: AsyncCache[dict[str, Feature], Feature] | None = None,
+    batch_item_cls: type[AsyncBatchItem[dict[str, Feature], Feature]] = AsyncBatchItem[dict[str, Feature], Feature],
     spread_kwargs: bool = False,
 ) -> Callable:
     """
     Dynamically batch numpy arrays or PyTorch Tensors for inference tasks using asyncio.
-
-    This decorator is designed for inference functions that can process batches of data asynchronously.
-    The decorated function should accept a dictionary of input arrays/tensors and return a dictionary
-    of output arrays/tensors of the same length. The function should be a coroutine or be convertible to one.
 
     Args:
         func (BatchInfer | None): The inference function to be wrapped. If None, returns a decorator.
         batch_size (int): The maximum number of samples in each batch. Defaults to 32.
         timeout_ms (float): The maximum wait time in milliseconds for batch formation. Defaults to 5.0.
         small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
+        max_batch_length (int | None): The maximum length of a batch. Defaults to None.
         pad_tokens (dict[str, int] | None): Padding token values for each input feature. Defaults to None.
+        priority_strategy (PriorityStrategy): The strategy to use for prioritizing items.
+        cache (AsyncCache | None): An optional cache for storing results.
+        batch_item_cls (type[AsyncBatchItem]): The class to use for batch items. Defaults to AsyncBatchItem.
         spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
 
     Returns:
@@ -144,15 +159,20 @@ def dynamically(
             return model(inputs['input'])
 
         results = await infer_batch(multiple_samples)
+
     """
 
     def make_processor(_func: BatchInfer) -> AsyncModelBatchProcessor:
         return AsyncModelBatchProcessor(
-            _func=_func,
+            _func,
             batch_size=batch_size,
             timeout_ms=timeout_ms,
             small_batch_threshold=small_batch_threshold,
+            max_batch_length=max_batch_length,
             pad_tokens=pad_tokens,
+            priority_strategy=priority_strategy,
+            cache=cache,
+            batch_item_cls=batch_item_cls,
             spread_kwargs=spread_kwargs,
         )
 

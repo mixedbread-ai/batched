@@ -1,14 +1,45 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
+import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from functools import wraps
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Generator, Sequence, TypeVar
+
+from batched.types import AsyncCache, CacheStats
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
 T = TypeVar("T")
+U = TypeVar("U")
+
+
+@contextmanager
+def ensure_import(install_name: str | None = None):
+    """Ensure a module is imported, raising a meaningful error if not.
+
+    Args:
+        install_name (Optional[str]): Name of the package to install if import fails.
+
+    Raises:
+        ImportError: If the module cannot be imported.
+
+    """
+    try:
+        yield
+    except ImportError as e:
+        module_name = str(e).split("'")[1]
+        install_name = install_name or module_name
+        msg = (
+            f"Failed to import {module_name}. This is required for this feature. "
+            f"Please install it using: 'pip install {install_name}'"
+        )
+        raise ImportError(msg) from e
 
 
 def first(it: Iterable[T]) -> T:
@@ -93,6 +124,28 @@ def batch_iter(seq: Sequence[T], batch_size: int) -> Generator[Sequence[T], None
         yield seq[i : i + batch_size]
 
 
+def batch_iter_by_length(
+    seq: Sequence[T], max_batch_length: int, batch_size: int
+) -> Generator[Sequence[T], None, None]:
+    """Yield batches from a sequence, respecting a maximum batch length."""
+    batch = []
+    current_length = 0
+
+    for item in seq:
+        item_length = len(item)
+
+        if batch and (len(batch) >= batch_size or (current_length + item_length > max_batch_length)):
+            yield batch
+            batch = []
+            current_length = 0
+
+        batch.append(item)
+        current_length += item_length
+
+    if batch:
+        yield batch
+
+
 def bucket_batch_iter(
     data: list[T], batch_size: int, *, descending: bool = True
 ) -> Generator[tuple[list[T], list[int]], None, None]:
@@ -118,3 +171,89 @@ def bucket_batch_iter(
     for batch in batch_iter(data_with_indices, batch_size):
         indices, items = zip(*batch)
         yield list(items), list(indices)
+
+
+class AsyncDiskCache(AsyncCache[T, U]):
+    """An asynchronous disk-based cache implementation."""
+
+    def __init__(
+        self,
+        cache_dir: str = "~/.cache/batched",
+        *,
+        max_threads: int = 16,
+        collect_stats: bool = False,
+        expiration_seconds: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        with ensure_import("diskcache"):
+            import diskcache
+
+        path = Path(cache_dir).expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+
+        kwargs = {"statistics": False, **kwargs}
+        self._cache = diskcache.Cache(str(path), **kwargs)
+        self._get_pool = ThreadPoolExecutor(max_workers=max_threads)
+        self._set_pool = ThreadPoolExecutor(max_workers=max_threads)
+        self._stats = CacheStats()
+        self._collect_stats = collect_stats
+        self._expiration_seconds = expiration_seconds
+
+    async def _to_thread(self, pool: ThreadPoolExecutor, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run a function in a thread pool."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(pool, functools.partial(func, *args, **kwargs))
+
+    def _get(self, key: T) -> U | None:
+        key = self._get_key(key)
+        return self._cache.get(key)
+
+    async def get(self, key: T) -> U | None:
+        """Get a value from the cache.
+
+        Args:
+            key: The key to look up
+
+        Returns:
+            The cached value if found, otherwise None
+        """
+        start_time = time.perf_counter()
+        result = await self._to_thread(self._get_pool, self._get, key)
+
+        if self._collect_stats:
+            self._stats.update_get(hit=result is not None, time_taken=time.perf_counter() - start_time)
+
+        return result
+
+    def _set(self, key: T, value: U) -> None:
+        """Set a value in the cache."""
+        key = self._get_key(key)
+        self._cache.set(key, value, expire=self._expiration_seconds)
+
+    async def set(self, key: T, value: U) -> None:
+        """Set a value in the cache.
+
+        Args:
+            key: The key to store under
+            value: The value to cache
+        """
+        start_time = time.perf_counter()
+        await self._to_thread(self._set_pool, self._set, key, value)
+
+        if self._collect_stats:
+            self._stats.update_set(time_taken=time.perf_counter() - start_time)
+
+    async def clear(self) -> None:
+        """Clear all entries from the cache."""
+        await asyncio.to_thread(self._cache.clear)
+
+    def clear_stats(self) -> None:
+        """Reset the cache statistics."""
+        self._stats = CacheStats()
+
+    def stats(self) -> CacheStats:
+        return self._stats
+
+    def _get_key(self, key: T):
+        """Get the cache key from the input key."""
+        return key

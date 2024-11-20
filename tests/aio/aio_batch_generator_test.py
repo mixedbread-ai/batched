@@ -69,7 +69,7 @@ async def test_async_batch_item_priority():
         AsyncBatchItem(content=2, future=asyncio.Future(), priority=1),
         AsyncBatchItem(content=3, future=asyncio.Future(), priority=3),
     ]
-    generator = AsyncBatchGenerator(batch_size=3)
+    generator = AsyncBatchGenerator(batch_size=3, sort_by_priority=True)
     await generator.extend(items)
 
     batch = await anext(generator.optimal_batches())

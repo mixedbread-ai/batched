@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Generic, List, Optional
+from typing import TYPE_CHECKING, Generic
 
 from batched.types import AsyncCache, T, U
-from batched.utils import AsyncMemoryCache, batch_iter, batch_iter_by_length, first
+from batched.utils import batch_iter, batch_iter_by_length, first
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
@@ -80,10 +80,10 @@ class AsyncBatchGenerator(Generic[T, U]):
     based on the specified batch size and timeout.
 
     Attributes:
+        cache (AsyncCache[T, U] | None): An optional cache to use for storing results.
         _queue (asyncio.PriorityQueue): An asyncio priority queue to store items.
         _batch_size (int): The maximum size of each batch.
         _timeout (float): The timeout in seconds between batch generation attempts.
-        _cache (AsyncCache[T, U] | None): An optional cache to use for storing results.
         _max_batch_length (int | None): Used to count the length of each item and stay within the limit.
 
     Type Parameters:
@@ -98,7 +98,7 @@ class AsyncBatchGenerator(Generic[T, U]):
         timeout_ms: float = 5.0,
         cache: AsyncCache[T, U] | None = None,
         max_batch_length: int | None = None,
-        use_batch_cache: bool = False
+        sort_by_priority: bool = False,
     ) -> None:
         """
         Initialize the BatchGenerator.
@@ -108,22 +108,16 @@ class AsyncBatchGenerator(Generic[T, U]):
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
             cache (AsyncCache[T, U] | None): An optional cache to use for storing results.
             max_batch_length (int | None): Used to count the length of each item and stay within the limit.
-            use_batch_cache (bool): If set to True the batch generator will construct a cache for each batch and then read on that instead of doing it on the main cache.
-                This is useful if the main cache is stored on disk, since then the get/set is batched instead of doing it 1 by 1.
-                If the main cache is on disk it can speed up results by 2X, otherwise the overhead is not worth it.
-                If set to True the cache should implement the get_all method. Defaults to False.
+            sort_by_priority (bool): Whether to sort the queue by priority. Defaults to False.
         """
-        self._queue: asyncio.PriorityQueue[AsyncBatchItem[T, U]] = asyncio.PriorityQueue()
+        self.cache = cache
+
+        self._queue: asyncio.PriorityQueue[AsyncBatchItem[T, U]] = (
+            asyncio.PriorityQueue() if sort_by_priority else asyncio.Queue()
+        )
         self._batch_size = batch_size
         self._timeout = timeout_ms / 1000  # Convert to seconds
         self._max_batch_length = max_batch_length
-        self._cache = cache
-        self._batch_cache: Optional[AsyncCache] = self._cache
-        self._use_batch_cache = False
-        if use_batch_cache and self._cache is not None:
-            assert hasattr(self._cache, 'get_all') and callable(self._cache.get_all), "If use_batch_cache is set to True, the cache has to implement a get_all method"
-            self._batch_cache = AsyncMemoryCache(statistics=False)
-            self._use_batch_cache = True
         self._background_tasks = set()
 
     def __len__(self) -> int:
@@ -137,29 +131,30 @@ class AsyncBatchGenerator(Generic[T, U]):
 
     def _wrap_set_result(self, item: AsyncBatchItem[T, U]) -> None:
         """Wrap the set_result method to store results in the cache."""
-        original_set_result = item.set_result
 
-        def wrapped_set_result(result: U) -> None:
-            original_set_result(result)
+        def wrapper(original_set_result):
+            def wrapped_set_result(result: U) -> None:
+                original_set_result(result)
 
-            if self._cache is not None:
-                task = asyncio.create_task(self._cache.set(item.content, result))
-                task.add_done_callback(self._background_tasks.discard)
-                self._background_tasks.add(task)
+                if self.cache is not None:
+                    task = asyncio.create_task(self.cache.set(item.content, result))
+                    task.add_done_callback(self._background_tasks.discard)
+                    self._background_tasks.add(task)
 
-        item.set_result = wrapped_set_result
+            return wrapped_set_result
+
+        return wrapper(item.set_result)
 
     async def _check_cache(self, item: AsyncBatchItem[T, U]) -> AsyncBatchItem[T, U]:
         """Check if the item is in the cache and set the result if it is."""
-        if self._batch_cache is not None:
-            hit = await self._batch_cache.get(item.content)
-        else:
-            hit = None
+        if not self.cache:
+            return item
 
+        hit = await self.cache.get(item.content)
         if hit is not None:
             item.set_result(hit)
         else:
-            self._wrap_set_result(item)
+            item.set_result = self._wrap_set_result(item)
 
         return item
 
@@ -170,7 +165,7 @@ class AsyncBatchGenerator(Generic[T, U]):
         Args:
             items (list[BatchItem[T, U]]): A list of items to add to the queue.
         """
-        if self._cache is None:
+        if self.cache is None:
             for item in items:
                 await self._queue.put(item)
             return
@@ -179,13 +174,6 @@ class AsyncBatchGenerator(Generic[T, U]):
             result = await item
             if not result.done():
                 await self._queue.put(result)
-
-    async def set_batch_cache(self, batch: List[AsyncBatchItem[T, U]]) -> None:
-        if self._cache is not None and self._use_batch_cache and isinstance(self._batch_cache, AsyncMemoryCache):
-            self._batch_cache.clear_cache()
-            keys = [item.content for item in batch]
-            elements = await self._cache.get_all(keys)
-            await self._batch_cache.set_all([(k, v) for k, v in zip(keys, elements) if v is not None])
 
     async def optimal_batches(self) -> AsyncGenerator[list[AsyncBatchItem[T, U]], None]:
         """
@@ -209,7 +197,7 @@ class AsyncBatchGenerator(Generic[T, U]):
             size_batches = min(self._batch_size * n_batches, queue_size)
             batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001
 
-            if self._max_batch_length is not None:
+            if self._max_batch_length:
                 batch_items = batch_iter_by_length(
                     batch_items, max_batch_length=self._max_batch_length, batch_size=self._batch_size
                 )
@@ -217,4 +205,6 @@ class AsyncBatchGenerator(Generic[T, U]):
                 batch_items = batch_iter(batch_items, self._batch_size)
 
             for batch in batch_items:
-                yield batch
+                filtered = [item for item in batch if not item.done()]
+                if filtered:
+                    yield filtered

@@ -18,6 +18,7 @@ class AsyncBatchProcessor(Generic[T, U]):
         batch_func (Callable[[list[T]], Awaitable[list[U]]]): The function to process batches.
         batch_queue (AsyncBatchGenerator[T, U]): The generator for creating optimal batches.
         small_batch_threshold (int): The threshold for considering a batch as small.
+        batch_item_cls (type[AsyncBatchItem[T, U]]): The class to use for batch items. Defaults to AsyncBatchItem.
         _loop (asyncio.AbstractEventLoop): The event loop for asynchronous operations.
         _task (asyncio.Task): The task for processing batches.
         _stats (BatchProcessorStats): Statistics about the batch processing.

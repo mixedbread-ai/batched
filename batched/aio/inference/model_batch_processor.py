@@ -32,6 +32,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
         pad_tokens: Optional[dict[str, int]] = None,
         priority_strategy: PriorityStrategy = PriorityStrategy.NONE,
         batch_item_cls: type[AsyncBatchItem[dict[str, Feature], Feature]] = AsyncBatchItem[dict[str, Feature], Feature],
+        spread_kwargs: bool = False,
     ):
         """
         Initialize the BatchProcessor.
@@ -46,6 +47,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
             priority_strategy (PriorityStrategy): The strategy to use for prioritizing items.
             batch_item_cls (type[AsyncBatchItem]): The class to use for batch items. Defaults to AsyncBatchItem.
+            spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
         """
         super().__init__(
             func=_func,  # type: ignore[arg-type]
@@ -59,6 +61,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
         )
 
         self.pad_tokens = pad_tokens or {}
+        self.spread_kwargs = spread_kwargs
 
     async def _process_batches(self):
         """
@@ -76,7 +79,9 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
                     pad_tokens=self.pad_tokens,
                 )
 
-                batch_outputs = await self.batch_func(batch_inputs)
+                batch_outputs = (
+                    await self.batch_func(**batch_inputs) if self.spread_kwargs else await self.batch_func(batch_inputs)
+                )
 
                 unstacked_outputs = unstack_outputs(batch_outputs)
                 for item, output in zip(batch, unstacked_outputs):
@@ -127,6 +132,7 @@ def dynamically(
     priority_strategy: PriorityStrategy = PriorityStrategy.NONE,
     cache: AsyncCache[dict[str, Feature], Feature] | None = None,
     batch_item_cls: type[AsyncBatchItem[dict[str, Feature], Feature]] = AsyncBatchItem[dict[str, Feature], Feature],
+    spread_kwargs: bool = False,
 ) -> Callable:
     """
     Dynamically batch numpy arrays or PyTorch Tensors for inference tasks using asyncio.
@@ -141,6 +147,7 @@ def dynamically(
         priority_strategy (PriorityStrategy): The strategy to use for prioritizing items.
         cache (AsyncCache | None): An optional cache for storing results.
         batch_item_cls (type[AsyncBatchItem]): The class to use for batch items. Defaults to AsyncBatchItem.
+        spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
 
     Returns:
         Callable: A decorator that creates an AsyncModelBatchProcessor for efficient batched inference.
@@ -166,6 +173,7 @@ def dynamically(
             priority_strategy=priority_strategy,
             cache=cache,
             batch_item_cls=batch_item_cls,
+            spread_kwargs=spread_kwargs,
         )
 
     return _dynamic_batch(make_processor, func)

@@ -20,7 +20,7 @@ class AsyncBatchProcessor(Generic[T, U]):
         small_batch_threshold (int): The threshold for considering a batch as small.
         batch_item_cls (type[AsyncBatchItem[T, U]]): The class to use for batch items. Defaults to AsyncBatchItem.
         _loop (asyncio.AbstractEventLoop): The event loop for asynchronous operations.
-        _task (asyncio.Task): The task for processing batches.
+        _task (Optional[asyncio.Task]): The task for processing batches.
         _stats (BatchProcessorStats): Statistics about the batch processing.
 
     Type Parameters:
@@ -60,18 +60,25 @@ class AsyncBatchProcessor(Generic[T, U]):
             timeout_ms=timeout_ms,
             cache=cache,
             max_batch_length=max_batch_length,
-            priority_strategy=priority_strategy,
+            sort_by_priority=priority_strategy != PriorityStrategy.NONE,
         )
         self.small_batch_threshold = small_batch_threshold
         self.batch_item_cls = batch_item_cls
+        self.priority_strategy = priority_strategy
 
+        self._start_lock = asyncio.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._task: asyncio.Task | None = None
         self._stats = BatchProcessorStats()
-        self._loop = None
-        self._task = None
 
-    def _start(self) -> None:
-        self._loop = utils.get_or_create_event_loop()
-        self._task = self._loop.create_task(self._process_batches())
+    async def _start(self) -> None:
+        """
+        Start the batch processor.
+        """
+        async with self._start_lock:
+            if self._loop is None:
+                self._loop = utils.get_or_create_event_loop()
+                self._task = self._loop.create_task(self._process_batches())
 
     def _determine_priority(self, items: list[T]) -> list[int]:
         """
@@ -102,7 +109,7 @@ class AsyncBatchProcessor(Generic[T, U]):
             list[U]: The list of processed results.
         """
         if self._loop is None:
-            self._start()
+            await self._start()
 
         prioritized = self._determine_priority(items)
 
@@ -180,6 +187,7 @@ class AsyncBatchProcessor(Generic[T, U]):
         if self._task is None:
             return
         self._task.cancel()
+        self._loop = None
 
     def clear_stats(self) -> None:
         self._stats = BatchProcessorStats()

@@ -18,7 +18,7 @@ on:
         default: "."
 
 env:
-  UV_VERSION: "0.1.0"
+  UV_VERSION: "0.5.8"
   PYTHON_VERSION: "3.10"
 
 jobs:

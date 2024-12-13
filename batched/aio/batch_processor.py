@@ -81,15 +81,7 @@ class AsyncBatchProcessor(Generic[T, U]):
                 self._task = self._loop.create_task(self._process_batches())
 
     def _determine_priority(self, items: list[T]) -> list[int]:
-        """
-        Determine the priority of items based on batch size and content length.
-
-        Args:
-            items (list[T]): The list of items to prioritize.
-
-        Returns:
-            list[int]: A list of integer values indicating the priority of each item.
-        """
+        """Determines the priority of items based on the strategy."""
         if self.priority_strategy == PriorityStrategy.NONE or len(items) <= self.small_batch_threshold:
             return [0] * len(items)
 
@@ -112,7 +104,6 @@ class AsyncBatchProcessor(Generic[T, U]):
             await self._start()
 
         prioritized = self._determine_priority(items)
-
         batch_items = [
             self.batch_item_cls(
                 content=item,

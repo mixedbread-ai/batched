@@ -16,50 +16,37 @@ if TYPE_CHECKING:
 @dataclass(order=True)
 class AsyncBatchItem(Generic[T, U]):
     """
-    A dataclass representing an item in the batch processing queue.
+    Represents an item in the batch processing queue.
 
     Attributes:
-        content (T): The content of the item.
-        future (asyncio.Future): An asyncio.Future object representing the eventual result of processing.
-        priority (int): The priority of the item in the queue. Lower values indicate higher priority.
-
-    Type Parameters:
-        T: The type of the content.
-        U: The type of the result.
+        content: The item's content.
+        future: An asyncio.Future for the result.
+        priority: Item priority (lower is higher).
+        _len_fn: Function to calculate length, if needed.
     """
 
     content: T = field(compare=False)
     future: asyncio.Future[U] = field(compare=False)
     priority: int = field(default=1, compare=True)
-    _len_fn: Callable[[T], int] = field(default=None, compare=False)
+    _len_fn: Callable[[T], int] | None = field(default=None, compare=False)
 
     def set_result(self, result: U) -> None:
-        """
-        Mark the item as complete with the given result.
-
-        Args:
-            result (U): The result of processing the item.
-        """
+        """Completes the item's future with a result."""
         with contextlib.suppress(asyncio.InvalidStateError):
             self.future.set_result(result)
 
     def set_exception(self, exception: Exception) -> None:
-        """
-        Set an exception that occurred during processing.
-
-        Args:
-            exception (Exception): The exception that occurred.
-        """
+        """Sets an exception on the item's future."""
         with contextlib.suppress(asyncio.InvalidStateError):
             self.future.set_exception(exception)
 
     def done(self) -> bool:
-        """Check if the item's future is done."""
+        """Checks if the item's future is done."""
         return self.future.done()
 
     @staticmethod
     def _get_len(content: T) -> int:
-        """Get the length of the content."""
+        """Calculates the length of the content, supporting Sized and Mappings."""
         if content is None:
             return 0
 
@@ -67,15 +54,15 @@ class AsyncBatchItem(Generic[T, U]):
             return len(content)
 
         if isinstance(content, Mapping):
-            value = first(content.values())
-            return AsyncBatchItem._get_len(value)
+            return AsyncBatchItem._get_len(first(content.values()))
 
         return 1
 
     def __len__(self) -> int:
-        """Get the length of the content."""
+        """Returns the length of the content."""
         if self._len_fn is None:
             self._len_fn = AsyncBatchItem._get_len
+
         return self._len_fn(self.content)
 
 
@@ -136,32 +123,29 @@ class AsyncBatchGenerator(Generic[T, U]):
         """
         return self._queue.qsize()
 
-    def _wrap_set_result(self, item: AsyncBatchItem[T, U]) -> Callable[[U], None]:
-        """Wrap the set_result method to store results in the cache."""
+    def _cache_result(self, item: AsyncBatchItem[T, U], result: U) -> None:
+        """Stores result in the cache if enabled."""
+        if self.cache:
+            task = asyncio.create_task(self.cache.set(item.content, result))
+            task.add_done_callback(self._background_tasks.discard)
+            self._background_tasks.add(task)
 
-        def wrapper(original_set_result):
-            def wrapped_set_result(result: U) -> None:
-                original_set_result(result)
-
-                if self.cache is not None:
-                    task = asyncio.create_task(self.cache.set(item.content, result))
-                    task.add_done_callback(self._background_tasks.discard)
-                    self._background_tasks.add(task)
-
-            return wrapped_set_result
-
-        return wrapper(item.set_result)
-
-    async def _check_cache(self, item: AsyncBatchItem[T, U]) -> AsyncBatchItem[T, U]:
-        """Check if the item is in the cache and set the result if it is."""
+    async def _check_cache_and_set_result(self, item: AsyncBatchItem[T, U]) -> AsyncBatchItem[T, U]:
+        """Checks cache and sets result if cached, otherwise prepares for set."""
         if not self.cache:
             return item
 
-        hit = await self.cache.get(item.content)
-        if hit is not None:
-            item.set_result(hit)
+        cached_result = await self.cache.get(item.content)
+        if cached_result is not None:
+            item.set_result(cached_result)
         else:
-            item.set_result = self._wrap_set_result(item)
+            original_set_result = item.set_result
+
+            def set_result_with_cache(result: U) -> None:
+                original_set_result(result)
+                self._cache_result(item, result)
+
+            item.set_result = set_result_with_cache
 
         return item
 
@@ -177,7 +161,7 @@ class AsyncBatchGenerator(Generic[T, U]):
                 await self._queue.put(item)
             return
 
-        for item in asyncio.as_completed([self._check_cache(item) for item in items]):
+        for item in asyncio.as_completed([self._check_cache_and_set_result(item) for item in items]):
             result = await item
             if not result.done():
                 await self._queue.put(result)

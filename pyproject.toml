@@ -1,6 +1,6 @@
 [project]
 name = "batched"
-version = "0.1.3"
+version = "0.1.4"
 description = "Batched is a flexible and efficient batch processing library implemented in Python. It supports asynchronous batch processing with dynamic batching and prioritization."
 authors = [
     { name = "Mixedbread", email = "support@mixedbread.ai" },

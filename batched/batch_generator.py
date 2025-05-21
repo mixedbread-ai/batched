@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+import threading
 from dataclasses import dataclass, field
 from queue import PriorityQueue
 from typing import TYPE_CHECKING, Generic
@@ -111,6 +112,8 @@ class BatchGenerator(Generic[T, U]):
         self._batch_size = batch_size
         self._timeout = timeout_ms / 1000
         self._stop_requested = False
+        self._event = threading.Event()
+        self._first_item_time: float | None = None
 
     def __len__(self) -> int:
         """
@@ -130,6 +133,7 @@ class BatchGenerator(Generic[T, U]):
         """
         for item in items:
             self._queue.put(item)
+        self._event.set()
 
     def optimal_batches(self) -> Generator[list[BatchItem[T, U]], None, None]:
         """
@@ -142,8 +146,30 @@ class BatchGenerator(Generic[T, U]):
             list[Item[T, U]]: A batch of items from the queue.
         """
         while not self._stop_requested:
+            if self._queue.qsize() == 0:
+                self._first_item_time = None
+                self._event.wait()
+                self._event.clear()
+                if self._stop_requested:
+                    break
+                continue
+
             if self._queue.qsize() < self._batch_size:
-                time.sleep(self._timeout)
+                if self._first_item_time is None:
+                    self._first_item_time = time.perf_counter()
+
+                elapsed = time.perf_counter() - self._first_item_time
+                if elapsed < self._timeout:
+                    self._event.wait(self._timeout - elapsed)
+                    self._event.clear()
+                    if self._stop_requested:
+                        break
+                    if (
+                        self._queue.qsize() < self._batch_size
+                        and (time.perf_counter() - self._first_item_time) < self._timeout
+                    ):
+                        continue
+                self._first_item_time = None
 
             queue_size = self._queue.qsize()
             if queue_size == 0:
@@ -166,3 +192,4 @@ class BatchGenerator(Generic[T, U]):
         optimal_batches generator to exit its loop on the next iteration.
         """
         self._stop_requested = True
+        self._event.set()

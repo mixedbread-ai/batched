@@ -199,6 +199,12 @@ class AsyncDiskCache(AsyncCache[T, U]):
         self._collect_stats = collect_stats
         self._expiration_seconds = expiration_seconds
 
+    async def close(self) -> None:
+        """Close the cache and shut down thread pools."""
+        self._get_pool.shutdown(wait=False)
+        self._set_pool.shutdown(wait=False)
+        await asyncio.to_thread(self._cache.close)
+
     async def _to_thread(self, pool: ThreadPoolExecutor, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Run a function in a thread pool."""
         loop = asyncio.get_running_loop()
@@ -257,3 +263,9 @@ class AsyncDiskCache(AsyncCache[T, U]):
     def _get_key(self, key: T):
         """Get the cache key from the input key."""
         return key
+
+    async def __aenter__(self) -> "AsyncDiskCache[T, U]":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()

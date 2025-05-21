@@ -113,6 +113,8 @@ class AsyncBatchGenerator(Generic[T, U]):
         self._timeout = timeout_ms / 1000  # Convert to seconds
         self._max_batch_length = max_batch_length
         self._background_tasks = set()
+        self._event = asyncio.Event()
+        self._first_item_time: float | None = None
 
     def __len__(self) -> int:
         """
@@ -159,12 +161,14 @@ class AsyncBatchGenerator(Generic[T, U]):
         if self.cache is None:
             for item in items:
                 await self._queue.put(item)
+            self._event.set()
             return
 
         for item in asyncio.as_completed([self._check_cache_and_set_result(item) for item in items]):
             result = await item
             if not result.done():
                 await self._queue.put(result)
+        self._event.set()
 
     async def optimal_batches(self) -> AsyncGenerator[list[AsyncBatchItem[T, U]], None]:
         """
@@ -177,8 +181,29 @@ class AsyncBatchGenerator(Generic[T, U]):
             list[BatchItem[T, U]]: A batch of items from the queue.
         """
         while True:
+            if self._queue.qsize() == 0:
+                self._first_item_time = None
+                await self._event.wait()
+                self._event.clear()
+                continue
+
             if self._queue.qsize() < self._batch_size:
-                await asyncio.sleep(self._timeout)
+                if self._first_item_time is None:
+                    self._first_item_time = asyncio.get_event_loop().time()
+
+                elapsed = asyncio.get_event_loop().time() - self._first_item_time
+                if elapsed < self._timeout:
+                    try:
+                        await asyncio.wait_for(self._event.wait(), timeout=self._timeout - elapsed)
+                    except asyncio.TimeoutError:
+                        pass
+                    self._event.clear()
+                    if (
+                        self._queue.qsize() < self._batch_size
+                        and (asyncio.get_event_loop().time() - self._first_item_time) < self._timeout
+                    ):
+                        continue
+                self._first_item_time = None
 
             queue_size = self._queue.qsize()
             if queue_size == 0:
@@ -186,7 +211,7 @@ class AsyncBatchGenerator(Generic[T, U]):
 
             n_batches = max(1, queue_size // self._batch_size)
             size_batches = min(self._batch_size * n_batches, queue_size)
-            batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001
+            batch_items = [self._queue.get_nowait() for _ in range(size_batches)]
 
             if self._max_batch_length:
                 batch_items = batch_iter_by_length(

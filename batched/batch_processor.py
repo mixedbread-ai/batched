@@ -125,7 +125,7 @@ class BatchProcessor(Generic[T, U]):
             if not self._running:
                 break
 
-            start_time = time.time()
+            start_time = time.perf_counter()
             try:
                 batch_inputs = [item.content for item in batch]
                 batch_outputs = self.batch_func(batch_inputs)
@@ -140,7 +140,7 @@ class BatchProcessor(Generic[T, U]):
                     item.set_exception(e)
 
             finally:
-                processing_time = time.time() - start_time
+                processing_time = time.perf_counter() - start_time
                 self._stats.update(len(batch), processing_time)
 
     @property
@@ -202,6 +202,13 @@ class BatchProcessor(Generic[T, U]):
         return await self._schedule([item])[0].to_awaitable()
 
     def __del__(self):
+        self.shutdown()
+
+    def __enter__(self) -> "BatchProcessor[T, U]":
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
         self.shutdown()
 
 

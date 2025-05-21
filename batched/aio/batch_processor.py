@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from collections.abc import Callable
 from typing import Generic, Optional, Union, overload
 
@@ -179,6 +180,22 @@ class AsyncBatchProcessor(Generic[T, U]):
             return
         self._task.cancel()
         self._loop = None
+
+    async def shutdown(self) -> None:
+        if self._task is None:
+            return
+        self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._task
+        self._task = None
+        self._loop = None
+
+    async def __aenter__(self) -> "AsyncBatchProcessor[T, U]":
+        await self._start()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.shutdown()
 
     def clear_stats(self) -> None:
         self._stats = BatchProcessorStats()

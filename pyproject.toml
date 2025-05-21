@@ -31,4 +31,4 @@ dev = [
 include = ["batched", "batched.*"]
 
 [tool.setuptools.package-data]
-batch = ["py.typed"]
+batched = ["py.typed"]

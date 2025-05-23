@@ -1,13 +1,17 @@
+"""Async batch generator implementation with lock-free optimization."""
+# ruff: noqa: PERF203
+
 from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections import deque
 from collections.abc import Mapping, Sized
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic
 
 from batched.types import AsyncCache, T, U
-from batched.utils import batch_iter, batch_iter_by_length, first
+from batched.utils import batch_iter_by_length, first
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
@@ -68,17 +72,22 @@ class AsyncBatchItem(Generic[T, U]):
 
 class AsyncBatchGenerator(Generic[T, U]):
     """
-    A generator class for creating optimal batches of items.
+    Lock-free batch generator using multiple queues for better concurrency.
 
-    This class manages an asyncio priority queue of items and generates batches
-    based on the specified batch size and timeout.
+    This implementation uses multiple internal queues to reduce contention
+    and improve performance under high concurrency. Items are distributed
+    across queues using round-robin, and collection happens without locks.
 
     Attributes:
-        cache (AsyncCache[T, U] | None): An optional cache to use for storing results.
-        _queue (asyncio.PriorityQueue): An asyncio priority queue to store items.
-        _batch_size (int): The maximum size of each batch.
-        _timeout (float): The timeout in seconds between batch generation attempts.
-        _max_batch_length (int | None): Used to count the length of each item and stay within the limit.
+        cache: Optional cache for storing results.
+        _batch_size: Maximum size of each batch.
+        _timeout: Timeout in seconds between batch generation attempts.
+        _max_batch_length: Maximum total length of items in a batch.
+        _num_queues: Number of internal queues (default: 4).
+        _queues: List of asyncio queues.
+        _producer_counter: Counter for round-robin distribution.
+        _consumer_counter: Counter for round-robin collection.
+        _background_tasks: Set of background cache tasks.
 
     Type Parameters:
         T: The type of the content in the BatchItem.
@@ -93,35 +102,50 @@ class AsyncBatchGenerator(Generic[T, U]):
         cache: AsyncCache[T, U] | None = None,
         max_batch_length: int | None = None,
         sort_by_priority: bool = False,
+        num_queues: int = 4,
     ) -> None:
         """
-        Initialize the BatchGenerator.
+        Initialize the AsyncBatchGenerator.
 
         Args:
-            batch_size (int): The maximum size of each batch. Defaults to 32.
-            timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
-            cache (AsyncCache[T, U] | None): An optional cache to use for storing results.
-            max_batch_length (int | None): Used to count the length of each item and stay within the limit.
-            sort_by_priority (bool): Whether to sort the queue by priority. Defaults to False.
+            batch_size: Maximum size of each batch. Defaults to 32.
+            timeout_ms: Timeout in milliseconds between batch generation attempts. Defaults to 5.0.
+            cache: Optional cache to use for storing results.
+            max_batch_length: Maximum total length of items in a batch.
+            sort_by_priority: Whether to sort by priority (Note: priority queues reduce performance).
+            num_queues: Number of internal queues for lock-free operation. Defaults to 4.
         """
         self.cache = cache
-
-        self._queue: asyncio.PriorityQueue[AsyncBatchItem[T, U]] = (
-            asyncio.PriorityQueue() if sort_by_priority else asyncio.Queue()
-        )
         self._batch_size = batch_size
         self._timeout = timeout_ms / 1000  # Convert to seconds
         self._max_batch_length = max_batch_length
+        self._sort_by_priority = sort_by_priority
         self._background_tasks = set()
+
+        # Lock-free implementation with multiple queues
+        self._num_queues = num_queues
+        if sort_by_priority:
+            # Fall back to single priority queue if sorting is required
+            self._num_queues = 1
+            self._queues = [asyncio.PriorityQueue(maxsize=100000)]
+        else:
+            # Use multiple regular queues for lock-free operation
+            self._queues = [asyncio.Queue(maxsize=25000) for _ in range(num_queues)]
+
+        self._producer_counter = 0
+        self._consumer_counter = 0
+
+        # Pre-allocated buffers for better performance
+        self._buffer_pool = deque([[] for _ in range(100)])
 
     def __len__(self) -> int:
         """
-        Get the current size of the queue.
+        Get the current total size across all queues.
 
         Returns:
-            int: The number of items in the queue.
+            The total number of items in all queues.
         """
-        return self._queue.qsize()
+        return sum(q.qsize() for q in self._queues)
 
     def _cache_result(self, item: AsyncBatchItem[T, U], result: U) -> None:
         """Stores result in the cache if enabled."""
@@ -149,53 +173,134 @@ class AsyncBatchGenerator(Generic[T, U]):
 
         return item
 
+    def _get_buffer(self) -> list:
+        """Get a pre-allocated buffer from the pool."""
+        if self._buffer_pool:
+            return self._buffer_pool.popleft()
+        return []
+
+    def _return_buffer(self, buffer: list) -> None:
+        """Return a buffer to the pool after clearing it."""
+        buffer.clear()
+        if len(self._buffer_pool) < 100:
+            self._buffer_pool.append(buffer)
+
     async def extend(self, items: list[AsyncBatchItem[T, U]]) -> None:
         """
-        Add multiple items to the queue.
+        Add multiple items to the queue using round-robin distribution.
 
         Args:
-            items (list[BatchItem[T, U]]): A list of items to add to the queue.
+            items: A list of items to add to the queues.
         """
-        if self.cache is None:
-            for item in items:
-                await self._queue.put(item)
+        if not items:
             return
 
-        for item in asyncio.as_completed([self._check_cache_and_set_result(item) for item in items]):
-            result = await item
-            if not result.done():
-                await self._queue.put(result)
+        # Handle cache checking if enabled
+        if self.cache:
+            items_to_queue = []
+            for item in items:
+                cached_item = await self._check_cache_and_set_result(item)
+                if not cached_item.done():
+                    items_to_queue.append(cached_item)
+            items = items_to_queue
 
-    async def optimal_batches(self) -> AsyncGenerator[list[AsyncBatchItem[T, U]], None]:
+        # Distribute items across queues using round-robin
+        for item in items:
+            queue_idx = self._producer_counter % self._num_queues
+            self._producer_counter += 1
+            await self._queues[queue_idx].put(item)
+
+    async def optimal_batches(self) -> AsyncGenerator[list[AsyncBatchItem[T, U]], None]:  # noqa: C901
         """
-        Generate optimal batches of items from the queue.
+        Generate optimal batches of items from the queues.
 
-        This method continuously generates batches of items, waiting for the specified
-        timeout if the queue is empty or has fewer items than the batch size.
+        This method continuously generates batches by collecting items from
+        multiple queues in a lock-free manner, improving performance under
+        high concurrency.
 
         Yields:
-            list[BatchItem[T, U]]: A batch of items from the queue.
+            Batches of items from the queues.
         """
+        batch_size = self._batch_size
+        timeout = self._timeout
+        queues = self._queues
+        num_queues = self._num_queues
+        max_batch_length = self._max_batch_length
+
         while True:
-            if self._queue.qsize() < self._batch_size:
-                await asyncio.sleep(self._timeout)
+            buffer = self._get_buffer()
 
-            queue_size = self._queue.qsize()
-            if queue_size == 0:
-                continue
+            try:
+                # Fast path: try to collect items without waiting
+                attempts = 0
+                while len(buffer) < batch_size and attempts < num_queues * 2:
+                    queue_idx = self._consumer_counter % num_queues
+                    self._consumer_counter += 1
+                    queue = queues[queue_idx]
+                    attempts += 1
 
-            n_batches = max(1, queue_size // self._batch_size)
-            size_batches = min(self._batch_size * n_batches, queue_size)
-            batch_items = [self._queue._get() for _ in range(size_batches)]  # noqa: SLF001
+                    # Try to get items without blocking
+                    items_to_get = min(batch_size - len(buffer), queue.qsize())
+                    for _ in range(items_to_get):
+                        try:
+                            item = queue.get_nowait()
+                            if not item.done():
+                                buffer.append(item)
+                        except asyncio.QueueEmpty:
+                            break
 
-            if self._max_batch_length:
-                batch_items = batch_iter_by_length(
-                    batch_items, max_batch_length=self._max_batch_length, batch_size=self._batch_size
-                )
-            else:
-                batch_items = batch_iter(batch_items, self._batch_size)
+                    if len(buffer) >= batch_size:
+                        break
 
-            for batch in batch_items:
-                filtered = [item for item in batch if not item.done()]
-                if filtered:
-                    yield filtered
+                # If we have a partial batch, wait briefly for more items
+                if buffer and len(buffer) < batch_size:
+                    await asyncio.sleep(min(timeout, 0.001))
+
+                    # One more sweep to collect any new items
+                    for queue in queues:
+                        items_to_get = min(batch_size - len(buffer), queue.qsize())
+                        for _ in range(items_to_get):
+                            try:
+                                item = queue.get_nowait()
+                                if not item.done():
+                                    buffer.append(item)
+                            except asyncio.QueueEmpty:
+                                break
+
+                        if len(buffer) >= batch_size:
+                            break
+
+                # If no items yet, wait for at least one
+                if not buffer:
+                    # Try each queue with timeout
+                    item_found = False
+                    for queue in queues:
+                        if not queue.empty() or not item_found:
+                            try:
+                                item = await asyncio.wait_for(queue.get(), timeout=timeout)
+                                if not item.done():
+                                    buffer.append(item)
+                                    item_found = True
+                            except asyncio.TimeoutError:
+                                continue
+
+                    # If still no items, sleep and continue
+                    if not buffer:
+                        await asyncio.sleep(timeout)
+                        continue
+
+                # Apply max_batch_length if specified
+                if buffer:
+                    if max_batch_length:
+                        # Group by length constraints
+                        batches = list(
+                            batch_iter_by_length(buffer, max_batch_length=max_batch_length, batch_size=batch_size)
+                        )
+                        for batch in batches:
+                            if batch:
+                                yield list(batch)
+                    else:
+                        yield list(buffer)
+
+            finally:
+                self._return_buffer(buffer)

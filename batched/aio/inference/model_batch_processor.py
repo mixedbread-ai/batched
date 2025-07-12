@@ -30,6 +30,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
         cache: AsyncCache[dict[str, Feature], Feature] | None = None,
         max_batch_length: int | None = None,
         pad_tokens: Optional[dict[str, int]] = None,
+        padding_side: str = "right",
         priority_strategy: PriorityStrategy = PriorityStrategy.NONE,
         batch_item_cls: type[AsyncBatchItem[dict[str, Feature], Feature]] = AsyncBatchItem[dict[str, Feature], Feature],
         spread_kwargs: bool = False,
@@ -45,6 +46,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
             cache (AsyncCache | None): An optional cache for storing results. Defaults to None.
             max_batch_length (int | None): The maximum length of a batch. Defaults to None.
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+            padding_side (str): Side to add padding tokens. Either "left" or "right". Defaults to "right".
             priority_strategy (PriorityStrategy): The strategy to use for prioritizing items.
             batch_item_cls (type[AsyncBatchItem]): The class to use for batch items. Defaults to AsyncBatchItem.
             spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
@@ -61,6 +63,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
         )
 
         self.pad_tokens = pad_tokens or {}
+        self.padding_side = padding_side
         self.spread_kwargs = spread_kwargs
 
     async def _process_batches(self):
@@ -77,6 +80,7 @@ class AsyncModelBatchProcessor(AsyncBatchProcessor[dict[str, Feature], Feature])
                 batch_inputs = stack_features(
                     [item.content for item in batch],
                     pad_tokens=self.pad_tokens,
+                    padding_side=self.padding_side,
                 )
 
                 batch_outputs = (
@@ -129,6 +133,7 @@ def dynamically(
     small_batch_threshold: int = 8,
     max_batch_length: int | None = None,
     pad_tokens: Optional[dict[str, int]] = None,
+    padding_side: str = "right",
     priority_strategy: PriorityStrategy = PriorityStrategy.NONE,
     cache: AsyncCache[dict[str, Feature], Feature] | None = None,
     batch_item_cls: type[AsyncBatchItem[dict[str, Feature], Feature]] = AsyncBatchItem[dict[str, Feature], Feature],
@@ -144,6 +149,7 @@ def dynamically(
         small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
         max_batch_length (int | None): The maximum length of a batch. Defaults to None.
         pad_tokens (dict[str, int] | None): Padding token values for each input feature. Defaults to None.
+        padding_side (str): Side to add padding tokens. Either "left" or "right". Defaults to "right".
         priority_strategy (PriorityStrategy): The strategy to use for prioritizing items.
         cache (AsyncCache | None): An optional cache for storing results.
         batch_item_cls (type[AsyncBatchItem]): The class to use for batch items. Defaults to AsyncBatchItem.
@@ -170,6 +176,7 @@ def dynamically(
             small_batch_threshold=small_batch_threshold,
             max_batch_length=max_batch_length,
             pad_tokens=pad_tokens,
+            padding_side=padding_side,
             priority_strategy=priority_strategy,
             cache=cache,
             batch_item_cls=batch_item_cls,

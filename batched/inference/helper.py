@@ -56,13 +56,18 @@ def torch_or_np(item: Any):
     raise ValueError(msg)
 
 
-def stack_features(inputs: list[dict[str, Feature]], pad_tokens: dict[str, int]) -> dict[str, Feature]:
+def stack_features(
+    inputs: list[dict[str, Feature]], 
+    pad_tokens: dict[str, int], 
+    padding_side: str = "right"
+) -> dict[str, Feature]:
     """
     Stack a list of model features into a single batch.
 
     Args:
         inputs (list[ModelFeatures]): List of input features to stack.
         pad_tokens (dict[str, int]): Dictionary of padding tokens for each feature.
+        padding_side (str): Side to add padding tokens. Either "left" or "right". Defaults to "right".
 
     Returns:
         ModelFeatures: Stacked features as a single batch.
@@ -76,7 +81,13 @@ def stack_features(inputs: list[dict[str, Feature]], pad_tokens: dict[str, int])
     for i, item in enumerate(inputs):
         for key, tensor in padded_tensors.items():
             tensor_length = item[key].shape[0]
-            tensor[i, :tensor_length] = item[key]
+            if padding_side == "left":
+                # Left padding: fill from the right side (end of sequence)
+                start_idx = max_length - tensor_length
+                tensor[i, start_idx:] = item[key]
+            else:
+                # Right padding: fill from the left side (start of sequence)
+                tensor[i, :tensor_length] = item[key]
 
     return padded_tensors
 

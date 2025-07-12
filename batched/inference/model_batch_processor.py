@@ -27,6 +27,7 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
         timeout_ms: float = 5.0,
         small_batch_threshold: int = 8,
         pad_tokens: Optional[dict[str, int]] = None,
+        padding_side: str = "right",
         spread_kwargs: bool = False,
     ):
         """
@@ -38,6 +39,7 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
             timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
             small_batch_threshold (int): The threshold for considering a batch as small. Defaults to 8.
             pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+            padding_side (str): Side to add padding tokens. Either "left" or "right". Defaults to "right".
             spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
         """
         super().__init__(
@@ -48,6 +50,7 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
         )
 
         self.pad_tokens = pad_tokens or {}
+        self.padding_side = padding_side
         self.spread_kwargs = spread_kwargs
 
     def _process_batches(self):
@@ -67,6 +70,7 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
                 batch_inputs = stack_features(
                     [item.content for item in batch],
                     pad_tokens=self.pad_tokens,
+                    padding_side=self.padding_side,
                 )
 
                 batch_outputs = self.batch_func(**batch_inputs) if self.spread_kwargs else self.batch_func(batch_inputs)
@@ -144,6 +148,7 @@ def dynamically(
     timeout_ms: float = 5.0,
     small_batch_threshold: int = 8,
     pad_tokens: Optional[dict[str, int]] = None,
+    padding_side: str = "right",
     spread_kwargs: bool = False,
 ) -> Callable:
     """
@@ -159,6 +164,7 @@ def dynamically(
         timeout_ms (float): The timeout in milliseconds between batch generation attempts. Defaults to 5.0.
         small_batch_threshold (int): The threshold to give priority to small batches. Defaults to 8.
         pad_tokens (dict[str, int] | None): Dictionary of padding tokens for each feature. Defaults to None.
+        padding_side (str): Side to add padding tokens. Either "left" or "right". Defaults to "right".
         spread_kwargs (bool): Whether to spread the kwargs over passing dict as args. Defaults to False.
 
     Returns:
@@ -193,6 +199,7 @@ def dynamically(
             timeout_ms=timeout_ms,
             small_batch_threshold=small_batch_threshold,
             pad_tokens=pad_tokens,
+            padding_side=padding_side,
             spread_kwargs=spread_kwargs,
         )
 

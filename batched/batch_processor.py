@@ -194,7 +194,7 @@ class BatchProcessor(Generic[T, U]):
         Returns:
             U: The inferred result.
         """
-        import asyncio
+        import asyncio  # noqa: PLC0415
 
         if isinstance(item, list):
             futures = self._schedule(item)

@@ -57,8 +57,8 @@ def torch_or_np(item: Any):
 
 
 def stack_features(
-    inputs: list[dict[str, Feature]], 
-    pad_tokens: dict[str, int], 
+    inputs: list[dict[str, Feature]],
+    pad_tokens: dict[str, int],
     padding_side: str = "right"
 ) -> dict[str, Feature]:
     """

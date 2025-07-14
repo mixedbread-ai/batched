@@ -131,7 +131,7 @@ class ModelBatchProcessor(BatchProcessor[dict[str, Feature], Feature]):
         Returns:
             ModelOutputs: The processed model outputs.
         """
-        import asyncio
+        import asyncio  # noqa: PLC0415
 
         features = args[0] if args else kwargs
         unstacked_features = unstack_features(features)

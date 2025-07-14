@@ -186,7 +186,7 @@ class AsyncDiskCache(AsyncCache[T, U]):
         **kwargs: Any,
     ) -> None:
         with ensure_import("diskcache"):
-            import diskcache
+            import diskcache  # noqa: PLC0415
 
         path = Path(cache_dir).expanduser().resolve()
         path.mkdir(parents=True, exist_ok=True)
